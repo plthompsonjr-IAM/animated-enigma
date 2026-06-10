@@ -5,5 +5,7 @@ __pycache__/
 *.sqlite3
 .env
 .env.*
+static/uploads/*
+!static/uploads/.gitkeep
 .venv/
 venv/
