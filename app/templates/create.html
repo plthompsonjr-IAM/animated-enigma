@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}New Ad — ContractorAds{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+  <div class="mb-6">
+    <a href="/" class="text-gray-500 hover:text-gray-700 text-sm">← Back to ads</a>
+    <h1 class="text-3xl font-bold text-gray-900 mt-2">Create New Ad</h1>
+    <p class="text-gray-500 mt-1">Fill in your business details — AI will write the ad copy after.</p>
+  </div>
+
+  {% if error %}
+  <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+    {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/ads/new" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
+
+    <!-- Business name -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1">Business Name <span class="text-red-500">*</span></label>
+      <input type="text" name="business_name" required
+             placeholder="e.g. Smith & Sons Roofing"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm" />
+    </div>
+
+    <!-- Contractor type -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1">Contractor Type <span class="text-red-500">*</span></label>
+      <select name="contractor_type" required
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm bg-white">
+        <option value="">Select a type…</option>
+        {% for ct in contractor_types %}
+        <option value="{{ ct }}">{{ ct }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Services -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1">Services Offered <span class="text-red-500">*</span></label>
+      <textarea name="services" required rows="2"
+                placeholder="e.g. Roof repair, new roof installation, storm damage, gutters"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm resize-none"></textarea>
+    </div>
+
+    <!-- Location -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1">Service Area / Location <span class="text-red-500">*</span></label>
+      <input type="text" name="location" required
+             placeholder="e.g. Dallas-Fort Worth, TX"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm" />
+    </div>
+
+    <!-- Phone & Website side by side -->
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Phone</label>
+        <input type="tel" name="phone"
+               placeholder="(555) 123-4567"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm" />
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Website</label>
+        <input type="url" name="website"
+               placeholder="https://yoursite.com"
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm" />
+      </div>
+    </div>
+
+    <!-- Tagline -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1">Tagline / Unique Selling Point</label>
+      <input type="text" name="tagline"
+             placeholder="e.g. Licensed & insured, 20 years experience, free estimates"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-400 text-sm" />
+    </div>
+
+    <!-- Platform -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-2">Ad Platform</label>
+      <div class="flex flex-wrap gap-2">
+        {% for p in platforms %}
+        <label class="cursor-pointer">
+          <input type="radio" name="platform" value="{{ p }}" class="peer sr-only"
+                 {% if loop.first %}checked{% endif %} />
+          <span class="px-3 py-1.5 rounded-full border text-sm font-medium transition
+                       peer-checked:bg-orange-500 peer-checked:text-white peer-checked:border-orange-500
+                       border-gray-300 text-gray-600 hover:border-orange-400">
+            {{ p }}
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button type="submit"
+            class="w-full bg-brand hover:bg-orange-600 text-white font-semibold py-3 rounded-lg transition shadow text-sm">
+      Save &amp; Go to Ad →
+    </button>
+  </form>
+</div>
+{% endblock %}
