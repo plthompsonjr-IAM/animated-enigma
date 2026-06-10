@@ -15,7 +15,7 @@
   </div>
   {% endif %}
 
-  <form method="POST" action="/ads/new" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
+  <form method="POST" action="/ads/new" enctype="multipart/form-data" class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
 
     <!-- Business name -->
     <div>
@@ -95,10 +95,35 @@
       </div>
     </div>
 
+    <!-- Photo upload -->
+    <div>
+      <label class="block text-sm font-semibold text-gray-700 mb-1">Photo of Your Work
+        <span class="text-gray-400 font-normal">(optional — AI uses it to write better copy)</span>
+      </label>
+      <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition" id="drop-zone">
+        <svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <p class="text-sm text-gray-500" id="drop-label">Click to upload or drag &amp; drop</p>
+        <p class="text-xs text-gray-400">JPG, PNG, WEBP up to 5MB</p>
+        <input type="file" name="image" accept="image/*" class="hidden" id="image-input"
+               onchange="showFilename(this)" />
+      </label>
+    </div>
+
     <button type="submit"
             class="w-full bg-brand hover:bg-orange-600 text-white font-semibold py-3 rounded-lg transition shadow text-sm">
       Save &amp; Go to Ad →
     </button>
   </form>
+
+  <script>
+  function showFilename(input) {
+    if (input.files && input.files[0]) {
+      document.getElementById('drop-label').textContent = '📷 ' + input.files[0].name;
+    }
+  }
+  </script>
 </div>
 {% endblock %}

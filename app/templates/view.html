@@ -54,6 +54,18 @@
     </div>
   </div>
 
+  <!-- Work photo -->
+  {% if ad.image_path %}
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+    <div class="px-6 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h2 class="font-bold text-gray-800">Work Photo</h2>
+      <span class="text-xs text-orange-500 font-medium">Used by AI when generating copy</span>
+    </div>
+    <img src="/{{ ad.image_path }}" alt="Work photo"
+         class="w-full max-h-72 object-cover" />
+  </div>
+  {% endif %}
+
   <!-- Ad copy section -->
   <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
     <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100">

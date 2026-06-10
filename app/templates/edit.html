@@ -15,7 +15,7 @@
   </div>
   {% endif %}
 
-  <form method="POST" action="/ads/{{ ad.id }}/edit" class="space-y-6">
+  <form method="POST" action="/ads/{{ ad.id }}/edit" enctype="multipart/form-data" class="space-y-6">
 
     <!-- Business info section -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-5">
@@ -112,6 +112,30 @@
       </div>
     </div>
     {% endif %}
+
+    <!-- Photo upload -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-3">
+      <h2 class="font-bold text-gray-800 border-b border-gray-100 pb-3">Work Photo</h2>
+
+      {% if ad.image_path %}
+      <div class="flex items-center gap-4">
+        <img src="/{{ ad.image_path }}" alt="Work photo"
+             class="w-24 h-24 object-cover rounded-lg border border-gray-200" />
+        <p class="text-sm text-gray-500">Upload a new image to replace this one.</p>
+      </div>
+      {% endif %}
+
+      <label class="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition">
+        <svg class="w-7 h-7 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+        </svg>
+        <p class="text-sm text-gray-500" id="drop-label">Click to upload a photo of your work</p>
+        <p class="text-xs text-gray-400">JPG, PNG, WEBP</p>
+        <input type="file" name="image" accept="image/*" class="hidden"
+               onchange="document.getElementById('drop-label').textContent = '📷 ' + this.files[0].name" />
+      </label>
+    </div>
 
     <!-- Status -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

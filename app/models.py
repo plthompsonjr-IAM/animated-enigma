@@ -17,6 +17,7 @@ class Ad(Base):
     ad_headline = Column(String(300))
     ad_body = Column(Text)
     ad_cta = Column(String(200))
+    image_path = Column(String(500))
     platform = Column(String(50), default="facebook")
     status = Column(String(20), default="draft")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

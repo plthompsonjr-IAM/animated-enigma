@@ -1,6 +1,9 @@
 import os
+import uuid
+import base64
+import json
 import anthropic
-from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi import APIRouter, Depends, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -19,6 +22,23 @@ CONTRACTOR_TYPES = [
 ]
 
 PLATFORMS = ["Facebook", "Google", "Instagram", "Nextdoor", "Craigslist"]
+
+UPLOAD_DIR = "static/uploads"
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+async def save_image(file: UploadFile) -> Optional[str]:
+    if not file or not file.filename:
+        return None
+    if file.content_type not in ALLOWED_TYPES:
+        return None
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    path = os.path.join(UPLOAD_DIR, filename)
+    content = await file.read()
+    with open(path, "wb") as f:
+        f.write(content)
+    return path
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -48,8 +68,10 @@ async def create_ad(
     website: Optional[str] = Form(None),
     tagline: Optional[str] = Form(None),
     platform: str = Form("facebook"),
+    image: UploadFile = File(None),
     db: Session = Depends(get_db),
 ):
+    image_path = await save_image(image)
     ad = Ad(
         business_name=business_name,
         contractor_type=contractor_type,
@@ -59,6 +81,7 @@ async def create_ad(
         website=website or "",
         tagline=tagline or "",
         platform=platform.lower(),
+        image_path=image_path,
         status="draft",
     )
     db.add(ad)
@@ -104,11 +127,19 @@ async def update_ad(
     ad_body: Optional[str] = Form(None),
     ad_cta: Optional[str] = Form(None),
     status: str = Form("draft"),
+    image: UploadFile = File(None),
     db: Session = Depends(get_db),
 ):
     ad = db.query(Ad).filter(Ad.id == ad_id).first()
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
+
+    new_image_path = await save_image(image)
+    if new_image_path:
+        # remove old image file if present
+        if ad.image_path and os.path.exists(ad.image_path):
+            os.remove(ad.image_path)
+        ad.image_path = new_image_path
 
     ad.business_name = business_name
     ad.contractor_type = contractor_type
@@ -142,7 +173,7 @@ async def generate_ad_copy(
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    prompt = f"""You are an expert copywriter specializing in local service advertising for contractors.
+    text_prompt = f"""You are an expert copywriter specializing in local service advertising for contractors.
 
 Generate a compelling {ad.platform} ad for this contractor:
 - Business: {ad.business_name}
@@ -151,6 +182,7 @@ Generate a compelling {ad.platform} ad for this contractor:
 - Location: {ad.location}
 - Tagline: {ad.tagline or 'none provided'}
 - Phone: {ad.phone or 'not provided'}
+{f"- A photo of their actual work is attached — use specific visual details from it to make the ad more authentic and compelling." if ad.image_path else ""}
 
 Return ONLY a JSON object with these exact keys (no markdown, no explanation):
 {{
@@ -159,15 +191,26 @@ Return ONLY a JSON object with these exact keys (no markdown, no explanation):
   "cta": "call-to-action button text (max 5 words)"
 }}"""
 
+    # build message content — include image if uploaded
+    content = []
+    if ad.image_path and os.path.exists(ad.image_path):
+        with open(ad.image_path, "rb") as f:
+            img_data = base64.standard_b64encode(f.read()).decode("utf-8")
+        ext = ad.image_path.rsplit(".", 1)[-1].lower()
+        media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": img_data},
+        })
+    content.append({"type": "text", "text": text_prompt})
+
     message = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=400,
-        messages=[{"role": "user", "content": prompt}],
+        messages=[{"role": "user", "content": content}],
     )
 
-    import json
     raw = message.content[0].text.strip()
-    # strip markdown code fences if present
     if raw.startswith("```"):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
