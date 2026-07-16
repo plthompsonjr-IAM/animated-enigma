@@ -9,11 +9,12 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from typing import Optional
 
+from ..config import TEMPLATES_DIR, UPLOAD_DIR, resolve_media
 from ..database import get_db
 from ..models import Ad
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 CONTRACTOR_TYPES = [
     "General Contractor", "Roofing", "Plumbing", "Electrical",
@@ -23,7 +24,6 @@ CONTRACTOR_TYPES = [
 
 PLATFORMS = ["Facebook", "Google", "Instagram", "Nextdoor", "Craigslist"]
 
-UPLOAD_DIR = "static/uploads"
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
@@ -34,11 +34,12 @@ async def save_image(file: UploadFile) -> Optional[str]:
         return None
     ext = file.filename.rsplit(".", 1)[-1].lower()
     filename = f"{uuid.uuid4().hex}.{ext}"
-    path = os.path.join(UPLOAD_DIR, filename)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     content = await file.read()
-    with open(path, "wb") as f:
+    with open(UPLOAD_DIR / filename, "wb") as f:
         f.write(content)
-    return path
+    # stored with forward slashes so templates can use it directly as a URL
+    return f"static/uploads/{filename}"
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -137,8 +138,10 @@ async def update_ad(
     new_image_path = await save_image(image)
     if new_image_path:
         # remove old image file if present
-        if ad.image_path and os.path.exists(ad.image_path):
-            os.remove(ad.image_path)
+        if ad.image_path:
+            old_file = resolve_media(ad.image_path)
+            if old_file.exists():
+                old_file.unlink()
         ad.image_path = new_image_path
 
     ad.business_name = business_name
@@ -193,10 +196,11 @@ Return ONLY a JSON object with these exact keys (no markdown, no explanation):
 
     # build message content — include image if uploaded
     content = []
-    if ad.image_path and os.path.exists(ad.image_path):
-        with open(ad.image_path, "rb") as f:
+    image_file = resolve_media(ad.image_path) if ad.image_path else None
+    if image_file and image_file.exists():
+        with open(image_file, "rb") as f:
             img_data = base64.standard_b64encode(f.read()).decode("utf-8")
-        ext = ad.image_path.rsplit(".", 1)[-1].lower()
+        ext = image_file.suffix.lstrip(".").lower()
         media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
         content.append({
             "type": "image",
