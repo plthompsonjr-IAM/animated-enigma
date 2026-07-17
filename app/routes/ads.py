@@ -2,6 +2,8 @@ import os
 import uuid
 import base64
 import json
+import random
+import logging
 import anthropic
 from fastapi import APIRouter, Depends, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -25,6 +27,44 @@ CONTRACTOR_TYPES = [
 PLATFORMS = ["Facebook", "Google", "Instagram", "Nextdoor", "Craigslist"]
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+logger = logging.getLogger("uvicorn.error")
+
+# --- Built-in copy writer -----------------------------------------------
+# Used whenever ANTHROPIC_API_KEY is missing or the API call fails, so the
+# Generate button always produces usable copy.
+
+FALLBACK_HEADLINES = [
+    "{location}'s Trusted {contractor_type} Pros",
+    "Top-Rated {contractor_type} in {location}",
+    "{contractor_type} Done Right — {location}",
+    "Quality {contractor_type} You Can Count On",
+]
+
+FALLBACK_BODIES = [
+    "{business_name} delivers {services_short} across {location} — on time, on budget, done right the first time. {tagline_part}Our schedule fills up fast, so call today for your free estimate.",
+    "Looking for dependable {contractor_type_lower} work in {location}? {business_name} handles {services_short} with licensed pros and honest pricing. {tagline_part}Book now — this month's slots are almost gone.",
+    "{business_name} is {location}'s go-to team for {services_short}. {tagline_part}Free quotes, quality workmanship, no surprises. Reach out today before the season rush.",
+]
+
+FALLBACK_CTAS = ["Get a Free Quote", "Call Today", "Book a Free Estimate", "Get Started Now"]
+
+
+def generate_fallback_copy(ad: Ad) -> dict:
+    services = [s.strip() for s in ad.services.replace("\n", ",").split(",") if s.strip()]
+    fields = {
+        "business_name": ad.business_name,
+        "contractor_type": ad.contractor_type,
+        "contractor_type_lower": ad.contractor_type.lower(),
+        "location": ad.location,
+        "services_short": ", ".join(services[:3]) if services else ad.contractor_type.lower(),
+        "tagline_part": f'"{ad.tagline}" — ' if ad.tagline else "",
+    }
+    return {
+        "headline": random.choice(FALLBACK_HEADLINES).format(**fields),
+        "body": random.choice(FALLBACK_BODIES).format(**fields),
+        "cta": random.choice(FALLBACK_CTAS),
+    }
 
 
 async def save_image(file: UploadFile) -> Optional[str]:
@@ -92,11 +132,11 @@ async def create_ad(
 
 
 @router.get("/ads/{ad_id}", response_class=HTMLResponse)
-async def view_ad(request: Request, ad_id: int, db: Session = Depends(get_db)):
+async def view_ad(request: Request, ad_id: int, notice: Optional[str] = None, db: Session = Depends(get_db)):
     ad = db.query(Ad).filter(Ad.id == ad_id).first()
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
-    return templates.TemplateResponse(request, "view.html", context={"ad": ad, "platforms": PLATFORMS})
+    return templates.TemplateResponse(request, "view.html", context={"ad": ad, "platforms": PLATFORMS, "notice": notice})
 
 
 @router.get("/ads/{ad_id}/edit", response_class=HTMLResponse)
@@ -160,20 +200,7 @@ async def update_ad(
     return RedirectResponse(url=f"/ads/{ad_id}", status_code=303)
 
 
-@router.post("/ads/{ad_id}/generate")
-async def generate_ad_copy(
-    request: Request,
-    ad_id: int,
-    db: Session = Depends(get_db),
-):
-    ad = db.query(Ad).filter(Ad.id == ad_id).first()
-    if not ad:
-        raise HTTPException(status_code=404, detail="Ad not found")
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
-
+def generate_ai_copy(ad: Ad, api_key: str) -> dict:
     client = anthropic.Anthropic(api_key=api_key)
 
     text_prompt = f"""You are an expert copywriter specializing in local service advertising for contractors.
@@ -219,11 +246,35 @@ Return ONLY a JSON object with these exact keys (no markdown, no explanation):
         raw = raw.split("```")[1]
         if raw.startswith("json"):
             raw = raw[4:]
-    data = json.loads(raw)
+    return json.loads(raw)
+
+
+@router.post("/ads/{ad_id}/generate")
+async def generate_ad_copy(
+    request: Request,
+    ad_id: int,
+    db: Session = Depends(get_db),
+):
+    ad = db.query(Ad).filter(Ad.id == ad_id).first()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        try:
+            data = generate_ai_copy(ad, api_key)
+            notice = "ai"
+        except Exception:
+            logger.exception("Claude AI generation failed; using built-in copy writer")
+            data = generate_fallback_copy(ad)
+            notice = "ai_failed"
+    else:
+        data = generate_fallback_copy(ad)
+        notice = "builtin"
 
     ad.ad_headline = data.get("headline", "")
     ad.ad_body = data.get("body", "")
     ad.ad_cta = data.get("cta", "Get a Free Quote")
     db.commit()
 
-    return RedirectResponse(url=f"/ads/{ad_id}", status_code=303)
+    return RedirectResponse(url=f"/ads/{ad_id}?notice={notice}", status_code=303)

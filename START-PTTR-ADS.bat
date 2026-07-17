@@ -7,6 +7,11 @@ REM ============================================================
 setlocal
 cd /d "%~dp0"
 
+if not exist ".env" if exist ".env.example" (
+    copy ".env.example" ".env" >nul
+    echo [PTTR] Created .env from .env.example — add your ANTHROPIC_API_KEY there to enable AI generation.
+)
+
 if not exist ".venv\Scripts\python.exe" (
     echo [PTTR] Creating virtual environment...
     py -3 -m venv .venv || python -m venv .venv

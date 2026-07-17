@@ -19,9 +19,10 @@ C:\PTTR\
 │   │   ├── config.py           all paths, absolute, derived from project root
 │   │   ├── database.py         SQLite via SQLAlchemy
 │   │   ├── models.py           Ad model
-│   │   ├── routes\ads.py       CRUD + photo upload + Generate (Anthropic)
+│   │   ├── routes\ads.py       CRUD + photo upload + Generate (Claude AI w/ built-in fallback)
 │   │   └── templates\          Jinja2 templates
 │   ├── static\uploads\         uploaded photos (auto-created, git-ignored)
+│   ├── static\vendor\          local Tailwind CSS (app is fully styled offline)
 │   ├── ads.db                  SQLite database (auto-created, git-ignored)
 │   ├── .env                    ANTHROPIC_API_KEY (copy from .env.example)
 │   ├── requirements.txt
@@ -83,15 +84,28 @@ git push origin --delete data-transfer   # clean up after confirming the data ar
 (Alternative: zip `ads.db` + `static/uploads` on the iPhone, move the zip via
 iCloud Drive / OneDrive / email, and extract into `C:\PTTR\marketing-ads`.)
 
-## 3. Configure the API key
+## 3. Configure the API key (optional — but recommended)
 
-```powershell
-copy .env.example .env
-notepad .env      # paste the ANTHROPIC_API_KEY value
-```
+The **Generate** button works out of the box: without a key it uses a **built-in
+copy writer** (template-based headline/body/CTA from the ad's details) and shows an
+amber banner saying so. With an Anthropic key it uses **Claude AI** instead, which
+writes much better copy and reads the uploaded work photo for authentic detail.
 
-Without a key the app runs fine, but the **Generate** button returns
-"ANTHROPIC_API_KEY not configured".
+To get a key (~5 minutes, needs a bank card):
+
+1. Sign in / sign up at **https://console.anthropic.com**
+2. **Billing** → add a payment method (or claim trial credits if offered)
+3. **API Keys** → **Create Key** → copy the `sk-ant-...` value
+4. On Tac HQ:
+   ```powershell
+   copy .env.example .env
+   notepad .env      # paste the key after ANTHROPIC_API_KEY=
+   ```
+5. Restart the server (`STOP-PTTR-ADS.bat`, then `START-PTTR-ADS.bat`)
+
+Cost: the app uses `claude-haiku-4-5` — one ad generation costs a fraction of a
+cent. If an AI call ever fails (bad key, no internet), the app automatically falls
+back to the built-in writer and shows a red banner explaining what to check.
 
 ## 4. Start the server
 
@@ -124,7 +138,7 @@ the internet — do **not** create a router port-forward for 8000.
 | Local | On Tac HQ open `http://127.0.0.1:8000` |
 | Ad creation | New Ad → fill form → Save → appears in list |
 | Photo upload | Attach a photo on create/edit → photo displays on the ad page |
-| Generate button | Click Generate on an ad (needs `.env` key) → headline/body/CTA fill in |
+| Generate button | Click Generate on an ad → headline/body/CTA fill in (green banner = Claude AI, amber = built-in writer, red = AI failed + fallback used) |
 | Multi-device | From TaC-HuB, the HP, and the iPhone (on Wi-Fi) open `http://<TAC-HQ-IP>:8000` |
 | DB persistence | Stop server, start again → ads and photos still there |
 | Restart recovery | Reboot Tac HQ, sign in → server auto-starts (step 7) |

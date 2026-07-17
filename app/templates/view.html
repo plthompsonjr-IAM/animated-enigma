@@ -9,6 +9,23 @@
        class="text-sm font-medium text-orange-600 hover:text-orange-700">Edit Details</a>
   </div>
 
+  {% if notice == 'ai' %}
+  <div class="mb-6 rounded-lg border border-green-200 bg-green-50 text-green-800 text-sm px-4 py-3">
+    ✨ Ad copy generated with Claude AI.
+  </div>
+  {% elif notice == 'builtin' %}
+  <div class="mb-6 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
+    ✍️ Copy written with the <strong>built-in generator</strong>. To enable Claude AI generation,
+    put an <code>ANTHROPIC_API_KEY</code> in the <code>.env</code> file on the server and restart — see the README.
+  </div>
+  {% elif notice == 'ai_failed' %}
+  <div class="mb-6 rounded-lg border border-red-200 bg-red-50 text-red-800 text-sm px-4 py-3">
+    ⚠️ Claude AI generation failed, so the <strong>built-in generator</strong> wrote this copy instead.
+    Check the <code>ANTHROPIC_API_KEY</code> in <code>.env</code> and the server's internet connection
+    (details are in the server window).
+  </div>
+  {% endif %}
+
   <!-- Business info card -->
   <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
     <div class="flex items-start justify-between">
