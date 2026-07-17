@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RC Journeys Captain Property Care Agreement</title>
+<style>
+  :root {
+    --navy: #1b2a4a;
+    --navy-light: #2e4370;
+    --gold: #b8912f;
+    --red: #8b1e1e;
+    --ink: #1f2430;
+    --muted: #5a6172;
+    --rule: #cdd3de;
+    --wash: #f2f4f8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #fff; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    color: var(--ink);
+    font-size: 10.5pt;
+    line-height: 1.5;
+  }
+  .sans { font-family: Arial, Helvetica, sans-serif; }
+
+  /* ---------- cover band ---------- */
+  .cover {
+    background: var(--navy);
+    color: #fff;
+    padding: 34pt 40pt 28pt 40pt;
+    page-break-inside: avoid;
+  }
+  .cover .brandline {
+    font-family: Arial, Helvetica, sans-serif;
+    letter-spacing: 3px;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 8pt;
+  }
+  .cover h1 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 21pt;
+    line-height: 1.2;
+    font-weight: 700;
+    margin-bottom: 6pt;
+  }
+  .cover .sub {
+    font-size: 11pt;
+    color: #d7dce8;
+    font-style: italic;
+  }
+  .cover .rule { border-top: 2px solid var(--gold); margin: 14pt 0 12pt 0; width: 120pt; }
+  .cover table { width: 100%; border-collapse: collapse; font-family: Arial, Helvetica, sans-serif; font-size: 9.5pt; }
+  .cover td { vertical-align: top; padding: 2pt 8pt 2pt 0; color: #e8ebf3; width: 50%; }
+  .cover td .lbl { color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px; font-size: 7.5pt; display: block; margin-bottom: 2pt; }
+  .cover td strong { color: #fff; font-size: 10.5pt; }
+
+  /* ---------- body layout ---------- */
+  main { padding: 24pt 40pt 0 40pt; }
+  section { margin-bottom: 18pt; }
+  h2 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12.5pt;
+    color: var(--navy);
+    border-bottom: 1.5pt solid var(--gold);
+    padding-bottom: 3pt;
+    margin: 18pt 0 8pt 0;
+    page-break-after: avoid;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  h2 .num { color: var(--gold); margin-right: 6pt; }
+  h3 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10.5pt;
+    color: var(--navy-light);
+    margin: 10pt 0 4pt 0;
+    page-break-after: avoid;
+  }
+  p { margin: 0 0 7pt 0; }
+  ul { margin: 0 0 8pt 0; padding-left: 16pt; }
+  li { margin-bottom: 2.5pt; }
+  .cols2 { column-count: 2; column-gap: 22pt; }
+  .cols2 ul { break-inside: avoid-column; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .note {
+    background: var(--wash);
+    border-left: 3pt solid var(--navy);
+    padding: 7pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  .warn {
+    background: #faf3f3;
+    border-left: 3pt solid var(--red);
+    padding: 7pt 10pt;
+    margin: 8pt 0;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  .warn strong { color: var(--red); }
+
+  table.grid {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+    margin: 6pt 0 10pt 0;
+  }
+  table.grid tr { page-break-inside: avoid; }
+  table.grid th {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--navy);
+    color: #fff;
+    text-align: left;
+    padding: 5pt 8pt;
+    font-size: 8.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  table.grid td { border: 0.75pt solid var(--rule); padding: 5pt 8pt; vertical-align: top; }
+  table.grid tr:nth-child(even) td { background: #f7f8fb; }
+  td.amount, th.amount { text-align: right; white-space: nowrap; }
+  .total-row td { font-weight: bold; background: #f0ead9 !important; }
+
+  /* ---------- checkboxes ---------- */
+  .cb {
+    display: inline-block;
+    width: 9pt; height: 9pt;
+    border: 1.1pt solid var(--ink);
+    vertical-align: -1pt;
+    margin-right: 6pt;
+    background: #fff;
+  }
+  .cbrow { margin: 3pt 0; }
+  .cbline { display: inline-block; margin-right: 18pt; white-space: nowrap; }
+
+  /* ---------- option cards ---------- */
+  .optwrap { display: flex; gap: 12pt; margin: 8pt 0; page-break-inside: avoid; }
+  .opt {
+    flex: 1;
+    border: 1pt solid var(--rule);
+    border-top: 3pt solid var(--navy);
+    padding: 9pt 11pt;
+  }
+  .opt.gold { border-top-color: var(--gold); }
+  .opt h4 { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: var(--navy); margin-bottom: 4pt; }
+  .opt .price { font-family: Arial, Helvetica, sans-serif; font-size: 15pt; color: var(--navy); font-weight: bold; }
+  .opt .per { font-size: 9pt; color: var(--muted); }
+  .opt ul { font-size: 9pt; margin-top: 5pt; }
+  .savings { color: var(--red); font-weight: bold; }
+
+  /* ---------- signature ---------- */
+  .sig-page { page-break-before: always; }
+  .sigblock { margin: 12pt 0 6pt 0; page-break-inside: avoid; }
+  .sigline { border-bottom: 1pt solid var(--ink); display: inline-block; min-width: 260pt; height: 14pt; vertical-align: bottom; }
+  .sigline.short { min-width: 140pt; }
+  .siglabel { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .sigrow { margin-bottom: 16pt; }
+  .exh {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--gold); color: var(--navy);
+    display: inline-block; padding: 2pt 8pt; font-size: 8pt;
+    text-transform: uppercase; letter-spacing: 1.5px; font-weight: bold;
+    margin-bottom: 4pt;
+  }
+  .keepline { page-break-inside: avoid; }
+  @page { size: Letter; margin: 0.65in 0 0.85in 0; }
+  @media print {
+    .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="brandline">PT&rsquo;s Tactical Renovations LLC &nbsp;&bull;&nbsp; Veteran-Owned</div>
+  <h1>Property Care Services Agreement</h1>
+  <div class="sub">Captain Property Care Membership &mdash; &ldquo;Your Home. Our Mission.&rdquo;</div>
+  <div class="rule"></div>
+  <table>
+    <tr>
+      <td>
+        <span class="lbl">Service Provider</span>
+        <strong>PT&rsquo;s Tactical Renovations LLC</strong><br>
+        Patrick Thompson Jr., Managing Member
+      </td>
+      <td>
+        <span class="lbl">Client</span>
+        <strong>R&amp;C Journeys LLC</strong><br>
+        Primary Property: 200 Parkview Dr., Arlington, Texas
+      </td>
+    </tr>
+    <tr>
+      <td style="padding-top:8pt;">
+        <span class="lbl">Membership</span>
+        <strong>Captain &mdash; $710 per month</strong>
+      </td>
+      <td style="padding-top:8pt;">
+        <span class="lbl">Effective Date</span>
+        <strong>____________________________</strong>
+      </td>
+    </tr>
+  </table>
+</div>
+
+<main>
+
+<section>
+  <h2><span class="num">1.</span>Parties, Property &amp; Purpose</h2>
+  <p>This Property Care Services Agreement (the &ldquo;Agreement&rdquo;) is entered into between <strong>PT&rsquo;s Tactical Renovations LLC</strong> (&ldquo;PTTR&rdquo;), represented by Patrick Thompson Jr., Managing Member, and <strong>R&amp;C Journeys LLC</strong> (the &ldquo;Client&rdquo;), effective as of the Effective Date stated above.</p>
+  <p>PTTR will provide membership-based handyman, property-care, and emergency-response services for the Client&rsquo;s short-term rental operations at the following approved property (the &ldquo;Property&rdquo;):</p>
+  <p style="margin-left:16pt;"><strong>Primary Property:</strong> 200 Parkview Dr., Arlington, Texas</p>
+  <p>Additional properties may be added to this Agreement only by written amendment signed by both parties. Membership hours may be used only at approved properties listed in this Agreement.</p>
+</section>
+
+<section>
+  <h2><span class="num">2.</span>Captain Property Care Membership</h2>
+  <p><strong>Monthly Membership Fee: $710</strong></p>
+  <table class="grid">
+    <tr><th style="width:38%;">Included Service</th><th>Description</th></tr>
+    <tr><td><strong>Skilled labor hours</strong></td><td>12 skilled labor hours per month for work within handyman scope at the Property</td></tr>
+    <tr><td><strong>Priority scheduling</strong></td><td>Requests scheduled on a priority basis, generally within 24&ndash;48 hours</td></tr>
+    <tr><td><strong>Dedicated service contact</strong></td><td>A dedicated PTTR point of contact for all service requests</td></tr>
+    <tr><td><strong>Member emergency dispatch</strong></td><td>Emergency dispatch fee reduced to $50 per emergency dispatch</td></tr>
+    <tr><td><strong>Overage labor rate</strong></td><td>Additional labor beyond included hours billed at $75 per hour</td></tr>
+    <tr><td><strong>Hour rollover</strong></td><td>Unused labor hours roll over for one additional billing cycle</td></tr>
+    <tr><td><strong>Emergency stabilization</strong></td><td>Emergency property stabilization as defined in Section&nbsp;9</td></tr>
+    <tr><td><strong>Guest-damage documentation</strong></td><td>Guest-damage inspection and documentation, including time-stamped photographs and written documentation suitable to support Airbnb AirCover claims</td></tr>
+    <tr><td><strong>Maintenance planning</strong></td><td>Routine maintenance planning for the Property</td></tr>
+    <tr><td><strong>Trade coordination</strong></td><td>Coordination with qualified specialty contractors when work exceeds handyman scope</td></tr>
+  </table>
+  <div class="note">
+    <strong>Not included in membership hours.</strong> Materials, specialty equipment, permits, disposal charges, licensed trades, subcontractors, and third-party vendor charges are <strong>not</strong> included in the monthly labor-hour allocation and are billed separately, unless specifically written into an approved work order.
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">3.</span>Membership Term</h2>
+  <ul>
+    <li>This Agreement begins on the Effective Date stated in the signed contract.</li>
+    <li>The membership carries an <strong>initial three-month minimum commitment</strong>.</li>
+    <li>After the initial three-month term, the membership <strong>automatically converts to month-to-month</strong>.</li>
+    <li>After completion of the initial term, either party may cancel with <strong>thirty (30) days&rsquo; written notice</strong>.</li>
+    <li>Monthly membership fees are <strong>billed in advance</strong>.</li>
+    <li>Unused labor hours may roll over for <strong>one additional billing cycle only</strong>. Expired hours have no cash value and are not refundable.</li>
+    <li>Membership hours may be used only at approved R&amp;C Journeys LLC properties listed in this Agreement.</li>
+    <li>Emergency response remains subject to crew availability, site safety, weather, access, and service-area limitations.</li>
+    <li>Priority response does not guarantee same-day completion.</li>
+    <li>PTTR will stabilize active hazards first and will provide a separate written scope when permanent repairs exceed handyman-level work.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">4.</span>Payment Structure &mdash; Select One</h2>
+  <div class="optwrap">
+    <div class="opt">
+      <h4><span class="cb"></span>OPTION A &mdash; Monthly Billing</h4>
+      <div class="price">$710 <span class="per">/ month</span></div>
+      <ul>
+        <li>Three-month initial commitment</li>
+        <li>Three-month contract value: <strong>$2,130.00</strong></li>
+        <li>Charged monthly, in advance</li>
+      </ul>
+    </div>
+    <div class="opt gold">
+      <h4><span class="cb"></span>OPTION B &mdash; Three Months Prepaid (7% Discount)</h4>
+      <div class="price">$1,980.90 <span class="per">one payment</span></div>
+      <ul>
+        <li>Standard three-month total: $2,130.00</li>
+        <li>7% prepayment discount: &ndash;$149.10</li>
+        <li>Effective monthly cost: <strong>$660.30</strong></li>
+        <li>Total savings: <span class="savings">$149.10</span></li>
+      </ul>
+    </div>
+  </div>
+  <h3>Prepayment Conditions (Option B)</h3>
+  <ul>
+    <li>The prepaid amount is due <strong>before the membership begins</strong>.</li>
+    <li>Prepaid membership fees are <strong>nonrefundable after the service term begins</strong>, except where required by law.</li>
+    <li>After the prepaid three-month period, this Agreement converts to the standard <strong>$710 month-to-month rate</strong> unless both parties approve another prepaid term in writing.</li>
+    <li>The 7% discount applies <strong>only to the membership fee</strong>. It does not apply to materials, emergency dispatch charges, lawn service, overage labor, or &agrave; la carte services.</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">5.</span>Accepted Payment Methods</h2>
+  <p>PTTR accepts the following forms of payment:</p>
+  <div class="cols2">
+    <ul>
+      <li>ACH bank transfer</li>
+      <li>Business check</li>
+      <li>Certified check</li>
+      <li>Credit card</li>
+      <li>Debit card</li>
+      <li>Electronic invoice payment link</li>
+      <li>Zelle, when accepted by PTTR</li>
+      <li>Cash App, when accepted by PTTR</li>
+      <li>Apple Pay, when accepted by PTTR</li>
+      <li>Cash, only when accompanied by a written PTTR receipt</li>
+    </ul>
+  </div>
+  <h3>Payment Conditions</h3>
+  <ul>
+    <li>ACH and check payments carry no processing surcharge unless a returned-payment fee applies.</li>
+    <li>Credit-card and debit-card payments may include a disclosed processing fee where legally permitted.</li>
+    <li>Electronic invoices may be paid through the payment processor shown on the invoice.</li>
+    <li>Returned checks, rejected ACH payments, and disputed payments may result in a reasonable returned-payment or administrative fee.</li>
+    <li>PTTR may suspend nonemergency services while an account is past due.</li>
+    <li>Emergency response for a delinquent account is subject to payment authorization before dispatch.</li>
+    <li>Payment instructions will be provided on each invoice. No bank-account numbers or sensitive financial credentials are printed in this Agreement.</li>
+  </ul>
+  <h3 class="keepline">Preferred Payment Method &mdash; Select One</h3>
+  <div class="keepline">
+  <div class="cbrow">
+    <span class="cbline"><span class="cb"></span>ACH</span>
+    <span class="cbline"><span class="cb"></span>Business Check</span>
+    <span class="cbline"><span class="cb"></span>Credit Card</span>
+    <span class="cbline"><span class="cb"></span>Debit Card</span>
+    <span class="cbline"><span class="cb"></span>Electronic Invoice</span>
+  </div>
+  <div class="cbrow">
+    <span class="cbline"><span class="cb"></span>Zelle</span>
+    <span class="cbline"><span class="cb"></span>Cash App</span>
+    <span class="cbline"><span class="cb"></span>Apple Pay</span>
+    <span class="cbline"><span class="cb"></span>Other: <span class="sigline short" style="min-width:110pt;"></span></span>
+  </div>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">6.</span>Lawn Service Add-On (Separate Flat Rate)</h2>
+  <p><strong>Standard Mow and Edge Service &mdash; $65 per visit (flat rate)</strong></p>
+  <p>Each visit includes:</p>
+  <ul>
+    <li>Mowing of front, back, and side yards</li>
+    <li>Edging of sidewalks, driveway, and accessible borders</li>
+    <li>String-trimming around fences, structures, and obstacles</li>
+    <li>Blowing clippings from sidewalks, driveway, patios, and entry areas</li>
+  </ul>
+  <div class="note">
+    Lawn service is billed separately and <strong>does not deduct from the Captain Membership&rsquo;s 12 included labor hours</strong>. Pricing assumes an ordinary residential lot size and routine growth. Overgrown properties, excessive debris, pet waste, storm debris, bagging, hauling, shrub work, and specialty landscaping require additional written authorization and separate pricing.
+  </div>
+  <h3 class="keepline">Service Frequency &mdash; Selected by Client</h3>
+  <div class="cbrow keepline">
+    <span class="cbline"><span class="cb"></span>Weekly</span>
+    <span class="cbline"><span class="cb"></span>Every two weeks</span>
+    <span class="cbline"><span class="cb"></span>As requested</span>
+    <span class="cbline"><span class="cb"></span>Seasonal schedule</span>
+    <span class="cbline"><span class="cb"></span>Not selected at this time</span>
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">7.</span>&Agrave; La Carte Services for Short-Term Rental Operations</h2>
+  <p>The services below may be completed using available Captain Membership labor hours when they fall within handyman scope. Materials, specialty equipment, and services exceeding available hours are billed separately.</p>
+  <p><strong>All &agrave; la carte services: quoted by scope, billed through available membership hours or separately authorized.</strong></p>
+
+  <div class="cols2">
+    <h3>Guest Turnover &amp; Interior Repairs</h3>
+    <ul>
+      <li>Drywall patching and texture blending</li>
+      <li>Paint and trim touch-ups</li>
+      <li>Door and cabinet adjustments</li>
+      <li>Blind and curtain repairs</li>
+      <li>Furniture assembly and repair</li>
+      <li>TV and artwork mounting</li>
+      <li>Shelving installation</li>
+      <li>Caulking and cosmetic repairs</li>
+      <li>Punch-list completion</li>
+    </ul>
+    <h3>Entry &amp; Security</h3>
+    <ul>
+      <li>Smart-lock installation</li>
+      <li>Lock replacement</li>
+      <li>Door-latch and strike-plate adjustment</li>
+      <li>Deadbolt replacement</li>
+      <li>Keypad troubleshooting</li>
+      <li>Temporary securing of damaged doors or windows</li>
+      <li>Security-light installation</li>
+    </ul>
+    <h3>Plumbing Handyman Services</h3>
+    <ul>
+      <li>Toilet repairs</li>
+      <li>Faucet replacement</li>
+      <li>Minor sink repairs</li>
+      <li>Garbage-disposal replacement</li>
+      <li>Supply-line replacement</li>
+      <li>Showerhead replacement</li>
+      <li>Minor drain clearing</li>
+      <li>Water-heater maintenance</li>
+    </ul>
+    <h3>Electrical Handyman Services</h3>
+    <ul>
+      <li>Light-fixture replacement</li>
+      <li>Ceiling-fan replacement, or installation where an approved box exists</li>
+      <li>Switch and receptacle replacement</li>
+      <li>GFCI replacement</li>
+      <li>Smoke-alarm installation</li>
+      <li>Carbon-monoxide-alarm installation</li>
+      <li>Exterior and security lighting</li>
+    </ul>
+    <h3>Exterior Property Services</h3>
+    <ul>
+      <li>Fence and gate repairs</li>
+      <li>Minor siding and trim repair</li>
+      <li>Gutter cleaning</li>
+      <li>Minor gutter repair</li>
+      <li>Pressure washing</li>
+      <li>Exterior caulking</li>
+      <li>Weatherproofing</li>
+      <li>Exterior paint touch-ups</li>
+      <li>Ground-accessible storm-debris removal</li>
+    </ul>
+    <h3>Airbnb Operations Support</h3>
+    <ul>
+      <li>Pre-arrival property inspections</li>
+      <li>Post-checkout damage assessments</li>
+      <li>Time-stamped photographs</li>
+      <li>Written incident documentation</li>
+      <li>AirCover-supporting documentation</li>
+      <li>Emergency board-up or tarping</li>
+      <li>Lockout response</li>
+      <li>Appliance-replacement coordination</li>
+      <li>Vendor-access coordination</li>
+      <li>Property-readiness punch lists</li>
+    </ul>
+    <h3>Seasonal Services</h3>
+    <ul>
+      <li>Freeze preparation</li>
+      <li>Storm preparation</li>
+      <li>Storm cleanup</li>
+      <li>Leaf cleanup</li>
+      <li>Holiday-light installation and removal</li>
+      <li>Irrigation visual inspections</li>
+      <li>Seasonal exterior walkthroughs</li>
+    </ul>
+  </div>
+  <div class="note">
+    <strong>Licensed-trade limits.</strong> Concealed leaks, sewer-line problems, major drain blockages, gas plumbing, and permit-required plumbing may require a licensed plumber. Panel work, new circuits, concealed rewiring, and permit-required electrical work require a licensed electrician. PTTR will identify these conditions and coordinate qualified licensed trades when required.
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">8.</span>Exhibit A &mdash; Initial Service Authorization</h2>
+  <div class="exh">Current Storm &amp; Pre-Photography Work</div>
+  <h3>Authorized Scope</h3>
+  <ul>
+    <li>Remove and dispose of the fallen tree branch</li>
+    <li>Assess the hanging branch</li>
+    <li>Remove the hanging branch <strong>only</strong> if it is safely accessible and clear of utility lines</li>
+    <li>Rake and clean the affected area</li>
+    <li>Patch visible cosmetic drywall or surface cracks</li>
+    <li>Sand and texture-blend repaired areas</li>
+    <li>Optional paint touch-up when matching paint is available</li>
+  </ul>
+  <p>Once this Agreement becomes active, labor for this scope may be performed using the Captain Membership&rsquo;s included monthly labor hours.</p>
+  <h3>Billed Separately from Membership Hours</h3>
+  <div class="cols2">
+    <ul>
+      <li>Materials</li>
+      <li>Debris disposal</li>
+      <li>Specialty equipment</li>
+      <li>Tree-service subcontractors</li>
+      <li>Lift or crane service</li>
+      <li>Utility coordination</li>
+      <li>Work outside normal handyman scope</li>
+    </ul>
+  </div>
+  <div class="warn">
+    <strong>Safety exclusion &mdash; utility lines.</strong> PTTR will not cut or handle branches touching, crossing, or located dangerously near utility lines. Such conditions require coordination with the utility provider or a qualified and insured tree-service contractor. PTTR will identify the condition and assist with coordination.
+  </div>
+</section>
+
+<section>
+  <h2><span class="num">9.</span>Emergency Response Terms</h2>
+  <table class="grid">
+    <tr><th style="width:30%;">Term</th><th>Definition</th></tr>
+    <tr><td><strong>Priority Response</strong></td><td>R&amp;C Journeys LLC is placed ahead of nonmember service requests in the scheduling queue.</td></tr>
+    <tr><td><strong>Emergency Stabilization</strong></td><td>Immediate reasonable steps intended to stop continuing damage, remove an immediate safety hazard, or temporarily secure the Property.</td></tr>
+    <tr><td><strong>Permanent Repair</strong></td><td>The full corrective repair, which may require a separate estimate, materials, specialty equipment, permits, or licensed trades.</td></tr>
+  </table>
+  <p><strong>Priority response does not guarantee:</strong></p>
+  <ul>
+    <li>A specific arrival time</li>
+    <li>Same-day completion</li>
+    <li>Immediate material availability</li>
+    <li>Completion during unsafe weather</li>
+    <li>Work on energized electrical systems</li>
+    <li>Work involving active utility hazards</li>
+    <li>Completion of licensed or permit-required work by PTTR personnel</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="num">10.</span>Client Responsibilities</h2>
+  <p>The Client agrees to:</p>
+  <ul>
+    <li>Provide accurate property and access information</li>
+    <li>Identify active guests, pets, alarms, and access restrictions before each visit</li>
+    <li>Maintain safe access to the work area</li>
+    <li>Disclose known hazards and utility conditions</li>
+    <li>Provide written authorization for additional work</li>
+    <li>Pay invoices according to the selected payment schedule</li>
+    <li>Inform PTTR of emergency conditions promptly</li>
+    <li>Maintain appropriate property and liability insurance</li>
+  </ul>
+</section>
+
+<!-- ================= SIGNATURE PAGE ================= -->
+<section class="sig-page">
+  <h2><span class="num">11.</span>Acceptance &amp; Signatures</h2>
+  <p>By signing below, each party accepts the terms of this Agreement, including the selected payment structure, payment method, and lawn-service frequency indicated.</p>
+
+  <h3>Client &mdash; R&amp;C Journeys LLC</h3>
+  <div class="sigblock">
+    <div class="sigrow">
+      <span class="sigline"></span><br>
+      <span class="siglabel">Authorized Representative Name</span>
+    </div>
+    <div class="sigrow">
+      <span class="sigline"></span><br>
+      <span class="siglabel">Title</span>
+    </div>
+    <div class="sigrow">
+      <span class="sigline"></span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="sigline short"></span><br>
+      <span class="siglabel" style="display:inline-block; min-width:266pt;">Signature</span><span class="siglabel">Date</span>
+    </div>
+  </div>
+
+  <h3 class="keepline">Selected Payment Option</h3>
+  <div class="cbrow keepline">
+    <span class="cbline"><span class="cb"></span>Option A &mdash; $710 monthly</span>
+    <span class="cbline"><span class="cb"></span>Option B &mdash; $1,980.90 prepaid for the initial three months</span>
+  </div>
+
+  <div class="sigrow keepline" style="margin-top:10pt;">
+    <span class="sigline"></span><br>
+    <span class="siglabel">Selected Payment Method</span>
+  </div>
+
+  <h3 class="keepline">Lawn Service Selection</h3>
+  <div class="cbrow keepline">
+    <span class="cbline"><span class="cb"></span>Weekly</span>
+    <span class="cbline"><span class="cb"></span>Every two weeks</span>
+    <span class="cbline"><span class="cb"></span>As requested</span>
+    <span class="cbline"><span class="cb"></span>Seasonal</span>
+    <span class="cbline"><span class="cb"></span>Not selected</span>
+  </div>
+
+  <h3 style="margin-top:18pt;">Service Provider &mdash; PT&rsquo;s Tactical Renovations LLC</h3>
+  <p style="margin-bottom:10pt;">Patrick Thompson Jr., Managing Member</p>
+  <div class="sigblock">
+    <div class="sigrow">
+      <span class="sigline"></span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="sigline short"></span><br>
+      <span class="siglabel" style="display:inline-block; min-width:266pt;">Signature</span><span class="siglabel">Date</span>
+    </div>
+  </div>
+
+  <h3>Electronic Signature Clause</h3>
+  <div class="note">
+    The parties agree that electronic signatures, digital acceptance, and signed PDF copies are enforceable to the same extent as original handwritten signatures. Each signer confirms that they are authorized to enter into this agreement on behalf of the organization identified above.
+  </div>
+</section>
+
+</main>
+</body>
+</html>
