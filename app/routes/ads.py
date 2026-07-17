@@ -242,11 +242,11 @@ Return ONLY a JSON object with these exact keys (no markdown, no explanation):
     )
 
     raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw)
+    # the model sometimes wraps the JSON in fences or prose — extract the object
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError(f"no JSON object in model response: {raw[:200]!r}")
+    return json.loads(raw[start:end + 1])
 
 
 @router.post("/ads/{ad_id}/generate")
