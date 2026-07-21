@@ -32,7 +32,7 @@ pnpm-debug.log*
 .idea
 
 # drizzle
-/drizzle/meta
+# drizzle meta is committed (migration journal)
 
 # legacy python app (archived under legacy/)
 __pycache__/

@@ -2,11 +2,26 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { LogOut } from 'lucide-react';
 import { navItems } from './nav-config';
 import { cn } from '@/lib/utils';
+import { signOut } from '@/lib/auth/actions';
+import { switchOrganization } from '@/lib/auth/org-actions';
+
+export interface SidebarOrgOption {
+  id: string;
+  name: string;
+}
+
+export interface SidebarAccount {
+  email: string | null;
+  activeOrgId: string | null;
+  activeOrgName: string | null;
+  organizations: SidebarOrgOption[];
+}
 
 /** Desktop sidebar navigation (hidden on mobile). */
-export function Sidebar() {
+export function Sidebar({ account }: { account?: SidebarAccount }) {
   const pathname = usePathname();
 
   return (
@@ -45,9 +60,52 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t p-4 text-xs text-muted-foreground">
-        <div className="font-medium text-foreground">PT&apos;s Tactical Renovations</div>
-        <div>Signed in — foundation build</div>
+      <div className="space-y-3 border-t p-4">
+        {account?.activeOrgName ? (
+          account.organizations.length > 1 ? (
+            <form action={switchOrganization}>
+              <label
+                htmlFor="org-switcher"
+                className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+              >
+                Organization
+              </label>
+              <select
+                id="org-switcher"
+                name="organizationId"
+                defaultValue={account.activeOrgId ?? undefined}
+                // Submit on change so switching is one tap.
+                onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+              >
+                {account.organizations.map((org) => (
+                  <option key={org.id} value={org.id}>
+                    {org.name}
+                  </option>
+                ))}
+              </select>
+            </form>
+          ) : (
+            <div className="text-sm font-medium">{account.activeOrgName}</div>
+          )
+        ) : null}
+
+        {account?.email ? (
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate text-xs text-muted-foreground">{account.email}</span>
+            <form action={signOut}>
+              <button
+                type="submit"
+                aria-label="Sign out"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </form>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">Preview mode — auth not configured</div>
+        )}
       </div>
     </aside>
   );

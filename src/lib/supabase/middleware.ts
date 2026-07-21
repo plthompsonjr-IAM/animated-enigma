@@ -1,19 +1,19 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { publicEnv } from '@/lib/env';
+import { decideAccess } from '@/lib/auth/route-access';
 
 /**
- * Session refresh for middleware.
+ * Middleware: refresh the Supabase session cookie and enforce
+ * authentication-level route protection (Task 6). Organization membership is
+ * enforced by the app layout; RBAC by services/actions; tenancy by RLS.
  *
- * Keeps the Supabase auth cookie fresh on every request. Route protection and
- * org/role enforcement (redirect unauthenticated users, scope by organization)
- * are layered on in Task 6 — for now this only refreshes the session so the
- * scaffold's auth foundation is in place without gating any routes yet.
+ * Without Supabase env vars the app runs in unauthenticated preview mode and
+ * requests pass through untouched.
  */
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let response = NextResponse.next({ request });
 
-  // No Supabase configured yet (early dev): pass through untouched.
   if (!publicEnv.supabaseUrl || !publicEnv.supabaseAnonKey) {
     return response;
   }
@@ -33,6 +33,14 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     },
   });
 
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const decision = decideAccess(request.nextUrl.pathname, Boolean(user));
+  if (decision.kind === 'redirect') {
+    return NextResponse.redirect(new URL(decision.to, request.url));
+  }
+
   return response;
 }
