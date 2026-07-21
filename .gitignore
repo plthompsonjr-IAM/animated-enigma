@@ -42,5 +42,6 @@ __pycache__/
 *.sqlite3
 .venv/
 venv/
+backups/
 legacy/**/static/uploads/*
 !legacy/**/static/uploads/.gitkeep

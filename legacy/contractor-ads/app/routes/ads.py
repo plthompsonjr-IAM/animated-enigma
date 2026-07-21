@@ -2,6 +2,8 @@ import os
 import uuid
 import base64
 import json
+import random
+import logging
 import anthropic
 from fastapi import APIRouter, Depends, Request, Form, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -9,11 +11,12 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from typing import Optional
 
+from ..config import TEMPLATES_DIR, UPLOAD_DIR, resolve_media
 from ..database import get_db
 from ..models import Ad
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 CONTRACTOR_TYPES = [
     "General Contractor", "Roofing", "Plumbing", "Electrical",
@@ -23,8 +26,45 @@ CONTRACTOR_TYPES = [
 
 PLATFORMS = ["Facebook", "Google", "Instagram", "Nextdoor", "Craigslist"]
 
-UPLOAD_DIR = "static/uploads"
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+logger = logging.getLogger("uvicorn.error")
+
+# --- Built-in copy writer -----------------------------------------------
+# Used whenever ANTHROPIC_API_KEY is missing or the API call fails, so the
+# Generate button always produces usable copy.
+
+FALLBACK_HEADLINES = [
+    "{location}'s Trusted {contractor_type} Pros",
+    "Top-Rated {contractor_type} in {location}",
+    "{contractor_type} Done Right — {location}",
+    "Quality {contractor_type} You Can Count On",
+]
+
+FALLBACK_BODIES = [
+    "{business_name} delivers {services_short} across {location} — on time, on budget, done right the first time. {tagline_part}Our schedule fills up fast, so call today for your free estimate.",
+    "Looking for dependable {contractor_type_lower} work in {location}? {business_name} handles {services_short} with licensed pros and honest pricing. {tagline_part}Book now — this month's slots are almost gone.",
+    "{business_name} is {location}'s go-to team for {services_short}. {tagline_part}Free quotes, quality workmanship, no surprises. Reach out today before the season rush.",
+]
+
+FALLBACK_CTAS = ["Get a Free Quote", "Call Today", "Book a Free Estimate", "Get Started Now"]
+
+
+def generate_fallback_copy(ad: Ad) -> dict:
+    services = [s.strip() for s in ad.services.replace("\n", ",").split(",") if s.strip()]
+    fields = {
+        "business_name": ad.business_name,
+        "contractor_type": ad.contractor_type,
+        "contractor_type_lower": ad.contractor_type.lower(),
+        "location": ad.location,
+        "services_short": ", ".join(services[:3]) if services else ad.contractor_type.lower(),
+        "tagline_part": f'"{ad.tagline}" — ' if ad.tagline else "",
+    }
+    return {
+        "headline": random.choice(FALLBACK_HEADLINES).format(**fields),
+        "body": random.choice(FALLBACK_BODIES).format(**fields),
+        "cta": random.choice(FALLBACK_CTAS),
+    }
 
 
 async def save_image(file: UploadFile) -> Optional[str]:
@@ -34,11 +74,12 @@ async def save_image(file: UploadFile) -> Optional[str]:
         return None
     ext = file.filename.rsplit(".", 1)[-1].lower()
     filename = f"{uuid.uuid4().hex}.{ext}"
-    path = os.path.join(UPLOAD_DIR, filename)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     content = await file.read()
-    with open(path, "wb") as f:
+    with open(UPLOAD_DIR / filename, "wb") as f:
         f.write(content)
-    return path
+    # stored with forward slashes so templates can use it directly as a URL
+    return f"static/uploads/{filename}"
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -91,11 +132,11 @@ async def create_ad(
 
 
 @router.get("/ads/{ad_id}", response_class=HTMLResponse)
-async def view_ad(request: Request, ad_id: int, db: Session = Depends(get_db)):
+async def view_ad(request: Request, ad_id: int, notice: Optional[str] = None, db: Session = Depends(get_db)):
     ad = db.query(Ad).filter(Ad.id == ad_id).first()
     if not ad:
         raise HTTPException(status_code=404, detail="Ad not found")
-    return templates.TemplateResponse(request, "view.html", context={"ad": ad, "platforms": PLATFORMS})
+    return templates.TemplateResponse(request, "view.html", context={"ad": ad, "platforms": PLATFORMS, "notice": notice})
 
 
 @router.get("/ads/{ad_id}/edit", response_class=HTMLResponse)
@@ -137,8 +178,10 @@ async def update_ad(
     new_image_path = await save_image(image)
     if new_image_path:
         # remove old image file if present
-        if ad.image_path and os.path.exists(ad.image_path):
-            os.remove(ad.image_path)
+        if ad.image_path:
+            old_file = resolve_media(ad.image_path)
+            if old_file.exists():
+                old_file.unlink()
         ad.image_path = new_image_path
 
     ad.business_name = business_name
@@ -157,20 +200,7 @@ async def update_ad(
     return RedirectResponse(url=f"/ads/{ad_id}", status_code=303)
 
 
-@router.post("/ads/{ad_id}/generate")
-async def generate_ad_copy(
-    request: Request,
-    ad_id: int,
-    db: Session = Depends(get_db),
-):
-    ad = db.query(Ad).filter(Ad.id == ad_id).first()
-    if not ad:
-        raise HTTPException(status_code=404, detail="Ad not found")
-
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
-
+def generate_ai_copy(ad: Ad, api_key: str) -> dict:
     client = anthropic.Anthropic(api_key=api_key)
 
     text_prompt = f"""You are an expert copywriter specializing in local service advertising for contractors.
@@ -193,10 +223,11 @@ Return ONLY a JSON object with these exact keys (no markdown, no explanation):
 
     # build message content — include image if uploaded
     content = []
-    if ad.image_path and os.path.exists(ad.image_path):
-        with open(ad.image_path, "rb") as f:
+    image_file = resolve_media(ad.image_path) if ad.image_path else None
+    if image_file and image_file.exists():
+        with open(image_file, "rb") as f:
             img_data = base64.standard_b64encode(f.read()).decode("utf-8")
-        ext = ad.image_path.rsplit(".", 1)[-1].lower()
+        ext = image_file.suffix.lstrip(".").lower()
         media_type = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
         content.append({
             "type": "image",
@@ -211,15 +242,39 @@ Return ONLY a JSON object with these exact keys (no markdown, no explanation):
     )
 
     raw = message.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    data = json.loads(raw)
+    # the model sometimes wraps the JSON in fences or prose — extract the object
+    start, end = raw.find("{"), raw.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError(f"no JSON object in model response: {raw[:200]!r}")
+    return json.loads(raw[start:end + 1])
+
+
+@router.post("/ads/{ad_id}/generate")
+async def generate_ad_copy(
+    request: Request,
+    ad_id: int,
+    db: Session = Depends(get_db),
+):
+    ad = db.query(Ad).filter(Ad.id == ad_id).first()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        try:
+            data = generate_ai_copy(ad, api_key)
+            notice = "ai"
+        except Exception:
+            logger.exception("Claude AI generation failed; using built-in copy writer")
+            data = generate_fallback_copy(ad)
+            notice = "ai_failed"
+    else:
+        data = generate_fallback_copy(ad)
+        notice = "builtin"
 
     ad.ad_headline = data.get("headline", "")
     ad.ad_body = data.get("body", "")
     ad.ad_cta = data.get("cta", "Get a Free Quote")
     db.commit()
 
-    return RedirectResponse(url=f"/ads/{ad_id}", status_code=303)
+    return RedirectResponse(url=f"/ads/{ad_id}?notice={notice}", status_code=303)
