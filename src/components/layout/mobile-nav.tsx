@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Plus } from 'lucide-react';
 import { mobileNavItems } from './nav-config';
+import { QuickCreateFab } from './quick-create';
 import { cn } from '@/lib/utils';
 
 /**
@@ -24,13 +24,7 @@ export function MobileNav() {
           </MobileLink>
         ))}
 
-        <button
-          type="button"
-          aria-label="Quick create"
-          className="-mt-5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <Plus className="h-6 w-6" />
-        </button>
+        <QuickCreateFab />
 
         {right.map((item) => (
           <MobileLink key={item.href} href={item.href} pathname={pathname} label={item.label}>

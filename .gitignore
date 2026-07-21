@@ -45,3 +45,6 @@ venv/
 backups/
 legacy/**/static/uploads/*
 !legacy/**/static/uploads/.gitkeep
+
+# ts incremental build info
+tsconfig.tsbuildinfo

@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { Sidebar, type SidebarAccount } from '@/components/layout/sidebar';
 import { MobileNav } from '@/components/layout/mobile-nav';
 import { Header } from '@/components/layout/header';
+import { Breadcrumbs } from '@/components/layout/breadcrumbs';
 import { getAuthContext } from '@/lib/auth/session';
 
 /**
@@ -31,8 +32,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-dvh">
       <Sidebar account={account} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header />
-        <main className="flex-1 px-4 pb-24 pt-6 md:px-8 md:pb-8">{children}</main>
+        <Header account={{ orgName: account.activeOrgName, email: account.email }} />
+        <main className="flex-1 px-4 pb-24 pt-6 md:px-8 md:pb-8">
+          <Breadcrumbs />
+          {children}
+        </main>
       </div>
       <MobileNav />
     </div>
