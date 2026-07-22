@@ -15,6 +15,20 @@
       "when": 1784667482887,
       "tag": "0001_auth_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784690472386,
+      "tag": "0002_wild_reavers",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784690479665,
+      "tag": "0003_crm_rls",
+      "breakpoints": true
     }
   ]
 }

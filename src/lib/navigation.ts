@@ -48,7 +48,7 @@ export function buildBreadcrumbs(pathname: string): Crumb[] {
 /** The quick-create catalog (Task 7). Each entry lands on its section with a
  * `new` intent; the actual creation forms arrive with their feature tasks. */
 export const QUICK_CREATE_ITEMS = [
-  { label: 'New lead', href: '/leads?new=1', icon: 'Users' },
+  { label: 'New lead', href: '/leads/new', icon: 'Users' },
   { label: 'New client', href: '/clients?new=1', icon: 'Contact' },
   { label: 'New project', href: '/projects?new=1', icon: 'Hammer' },
   { label: 'New estimate', href: '/estimates?new=1', icon: 'Calculator' },

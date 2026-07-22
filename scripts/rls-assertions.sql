@@ -173,5 +173,64 @@ begin
   raise notice 'PASS: non-admin cannot modify memberships (no self-promotion)';
 end $$;
 
+-- ═════════════════════════ CRM tenant isolation (Task 8) ═════════════════════
+-- Seed a lead in each org as the service role, then verify cross-org invisibility.
+reset role;
+insert into leads (id, organization_id, lead_name, status) values
+  ('0000dead-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001', 'Org A bath remodel', 'new'),
+  ('0000beef-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002', 'Org B roof', 'new');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; nm text;
+begin
+  -- Alice sees only Org A's lead.
+  select count(*), min(lead_name) into n, nm from leads;
+  if n <> 1 or nm <> 'Org A bath remodel' then
+    raise exception 'FAIL: expected only Org A lead, saw % (%)', n, nm;
+  end if;
+  raise notice 'PASS: cross-org SELECT isolation (leads)';
+
+  -- Cross-org UPDATE on Org B's lead affects zero rows.
+  update leads set lead_name = 'hacked'
+    where id = '0000beef-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org lead UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (leads)';
+
+  -- Inserting a lead into a foreign org is blocked by WITH CHECK.
+  begin
+    insert into leads (organization_id, lead_name, status)
+      values ('0000000b-0000-4000-8000-000000000002', 'evil', 'new');
+    raise exception 'FAIL: cross-org lead insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org lead insert blocked';
+  end;
+
+  -- Inserting into own org succeeds, and conversion targets (clients/projects)
+  -- are writable within the org.
+  insert into leads (organization_id, lead_name, status)
+    values ('0000000a-0000-4000-8000-000000000001', 'Org A fence', 'new');
+  insert into clients (organization_id, display_name)
+    values ('0000000a-0000-4000-8000-000000000001', 'Converted Client');
+  raise notice 'PASS: same-org lead + client insert allowed';
+end $$;
+
+-- A non-member of Org A (Bob) sees no Org A leads.
+select set_config('request.jwt.claims',
+  '{"sub":"00000bbb-0000-4000-8000-000000000002","org":"0000000b-0000-4000-8000-000000000002"}',
+  false);
+do $$
+declare n int;
+begin
+  select count(*) into n from leads;
+  if n <> 1 then raise exception 'FAIL: Bob should see only his 1 lead, saw %', n; end if;
+  raise notice 'PASS: CRM isolation holds for the second tenant (leads)';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;
