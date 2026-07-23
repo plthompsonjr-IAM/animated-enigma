@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   boolean,
+  integer,
   numeric,
   date,
   jsonb,
@@ -143,8 +144,8 @@ export const projectStatusEnum = pgEnum('project_status', [
 ]);
 
 /**
- * Clients — core columns for lead conversion (Task 8). The full client &
- * property management UI and any additional columns arrive in Task 9.
+ * Clients — the customer record (Tasks 8–9): an individual or company with
+ * contact details, billing address, tags, and one or more properties.
  */
 export const clients = pgTable(
   'clients',
@@ -171,7 +172,34 @@ export const clients = pgTable(
 );
 
 /**
- * Properties — core columns for lead conversion (Task 8). Expanded in Task 9.
+ * Client contacts — additional people on a client account (Task 9): spouse,
+ * site contact, office manager at a commercial client, etc.
+ */
+export const clientContacts = pgTable(
+  'client_contacts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    role: text('role'),
+    phone: text('phone'),
+    email: text('email'),
+    isPrimary: boolean('is_primary').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('client_contacts_client_idx').on(table.clientId)],
+);
+
+/**
+ * Properties — the job sites (Tasks 8–9). A client can own several; jobsite
+ * details (access, utilities, permit jurisdiction) live here so crews and
+ * estimators see them on every project at that address.
  */
 export const properties = pgTable(
   'properties',
@@ -185,6 +213,12 @@ export const properties = pgTable(
       .references(() => clients.id, { onDelete: 'cascade' }),
     address: jsonb('address').notNull(),
     propertyType: text('property_type'),
+    squareFootage: integer('square_footage'),
+    yearBuilt: integer('year_built'),
+    occupancyStatus: text('occupancy_status'),
+    accessInstructions: text('access_instructions'),
+    utilityInfo: jsonb('utility_info'),
+    permitJurisdiction: text('permit_jurisdiction'),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -297,6 +331,7 @@ export const projects = pgTable(
 // to avoid a Drizzle circular-reference at table-definition time.
 
 export type Client = typeof clients.$inferSelect;
+export type ClientContact = typeof clientContacts.$inferSelect;
 export type Property = typeof properties.$inferSelect;
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;

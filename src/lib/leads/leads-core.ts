@@ -66,13 +66,7 @@ export const PRIORITY_STYLES: Record<Priority, string> = {
   high: 'bg-red-500/15 text-red-700 dark:text-red-300',
 };
 
-export const LEAD_SORTS = [
-  'recent',
-  'oldest',
-  'follow_up',
-  'priority',
-  'name',
-] as const;
+export const LEAD_SORTS = ['recent', 'oldest', 'follow_up', 'priority', 'name'] as const;
 export type LeadSort = (typeof LEAD_SORTS)[number];
 
 export const LEAD_SORT_LABELS: Record<LeadSort, string> = {
@@ -127,9 +121,7 @@ export const FOLLOW_UP_STYLES: Record<FollowUpUrgency, string> = {
 };
 
 function toDayNumber(d: Date): number {
-  return Math.floor(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86_400_000,
-  );
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 86_400_000);
 }
 
 /** Format a per-org sequential project number, e.g. PRJ-2026-0007. */

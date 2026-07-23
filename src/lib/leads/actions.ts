@@ -185,9 +185,11 @@ export async function changeLeadStatus(formData: FormData): Promise<void> {
     .where(and(eq(schema.leads.organizationId, orgId), eq(schema.leads.id, parsed.data.leadId)));
   if (!current) return;
 
-  if (!canTransition(current.status as LeadStatus, parsed.data.status, {
-    converted: Boolean(current.converted),
-  })) {
+  if (
+    !canTransition(current.status as LeadStatus, parsed.data.status, {
+      converted: Boolean(current.converted),
+    })
+  ) {
     logger.warn('leads: rejected status transition', {
       from: current.status,
       to: parsed.data.status,
@@ -200,16 +202,18 @@ export async function changeLeadStatus(formData: FormData): Promise<void> {
       .update(schema.leads)
       .set({ status: parsed.data.status })
       .where(and(eq(schema.leads.organizationId, orgId), eq(schema.leads.id, parsed.data.leadId)));
-    await tx.insert(schema.leadActivities).values(
-      activityValues(
-        orgId,
-        parsed.data.leadId,
-        userId,
-        'status_change',
-        `Status changed to ${LEAD_STATUS_LABELS[parsed.data.status]}`,
-        { from: current.status, to: parsed.data.status },
-      ),
-    );
+    await tx
+      .insert(schema.leadActivities)
+      .values(
+        activityValues(
+          orgId,
+          parsed.data.leadId,
+          userId,
+          'status_change',
+          `Status changed to ${LEAD_STATUS_LABELS[parsed.data.status]}`,
+          { from: current.status, to: parsed.data.status },
+        ),
+      );
   });
 
   revalidatePath(`/leads/${parsed.data.leadId}`);
@@ -254,15 +258,17 @@ export async function assignLead(formData: FormData): Promise<void> {
       .update(schema.leads)
       .set({ assignedTo: parsed.data.assignedTo })
       .where(and(eq(schema.leads.organizationId, orgId), eq(schema.leads.id, parsed.data.leadId)));
-    await tx.insert(schema.leadActivities).values(
-      activityValues(
-        orgId,
-        parsed.data.leadId,
-        userId,
-        'assignment',
-        parsed.data.assignedTo ? 'Lead reassigned' : 'Lead unassigned',
-      ),
-    );
+    await tx
+      .insert(schema.leadActivities)
+      .values(
+        activityValues(
+          orgId,
+          parsed.data.leadId,
+          userId,
+          'assignment',
+          parsed.data.assignedTo ? 'Lead reassigned' : 'Lead unassigned',
+        ),
+      );
   });
 
   revalidatePath(`/leads/${parsed.data.leadId}`);
@@ -288,17 +294,19 @@ export async function setFollowUp(formData: FormData): Promise<void> {
       .update(schema.leads)
       .set({ nextFollowUpDate: parsed.data.nextFollowUpDate })
       .where(and(eq(schema.leads.organizationId, orgId), eq(schema.leads.id, parsed.data.leadId)));
-    await tx.insert(schema.leadActivities).values(
-      activityValues(
-        orgId,
-        parsed.data.leadId,
-        userId,
-        'follow_up',
-        parsed.data.nextFollowUpDate
-          ? `Follow-up set for ${parsed.data.nextFollowUpDate}`
-          : 'Follow-up cleared',
-      ),
-    );
+    await tx
+      .insert(schema.leadActivities)
+      .values(
+        activityValues(
+          orgId,
+          parsed.data.leadId,
+          userId,
+          'follow_up',
+          parsed.data.nextFollowUpDate
+            ? `Follow-up set for ${parsed.data.nextFollowUpDate}`
+            : 'Follow-up cleared',
+        ),
+      );
   });
 
   revalidatePath(`/leads/${parsed.data.leadId}`);
@@ -325,7 +333,13 @@ export async function addLeadActivity(_prev: FormState, formData: FormData): Pro
     await getDb()
       .insert(schema.leadActivities)
       .values(
-        activityValues(orgId, parsed.data.leadId, userId, parsed.data.activityType, parsed.data.summary),
+        activityValues(
+          orgId,
+          parsed.data.leadId,
+          userId,
+          parsed.data.activityType,
+          parsed.data.summary,
+        ),
       );
   } catch (error) {
     logger.error('leads: add activity failed', {

@@ -232,5 +232,64 @@ begin
   raise notice 'PASS: CRM isolation holds for the second tenant (leads)';
 end $$;
 
+-- ═══════════════ Client & property isolation (Task 9) ════════════════════════
+-- Seed a client + property + contact in each org as the service role.
+reset role;
+insert into clients (id, organization_id, display_name, primary_phone) values
+  ('000c0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001', 'Org A Client', '4105551234'),
+  ('000c0bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002', 'Org B Client', '4435559999');
+insert into properties (id, organization_id, client_id, address) values
+  ('000d0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000c0aaa-0000-4000-8000-000000000001', '{"line1":"123 Main St"}'),
+  ('000d0bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000c0bbb-0000-4000-8000-000000000002', '{"line1":"9 Oak Ave"}');
+insert into client_contacts (organization_id, client_id, name) values
+  ('0000000a-0000-4000-8000-000000000001', '000c0aaa-0000-4000-8000-000000000001', 'A Spouse'),
+  ('0000000b-0000-4000-8000-000000000002', '000c0bbb-0000-4000-8000-000000000002', 'B Tenant');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Alice sees only Org A's property and contact.
+  select count(*) into n from properties;
+  if n <> 1 then raise exception 'FAIL: expected 1 visible property, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (properties)';
+
+  select count(*) into n from client_contacts;
+  if n <> 1 then raise exception 'FAIL: expected 1 visible client contact, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (client_contacts)';
+
+  -- Cross-org property insert (against Org B's client) is blocked.
+  begin
+    insert into properties (organization_id, client_id, address)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000c0bbb-0000-4000-8000-000000000002', '{"line1":"evil"}');
+    raise exception 'FAIL: cross-org property insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org property insert blocked';
+  end;
+
+  -- Cross-org contact UPDATE affects zero rows.
+  update client_contacts set name = 'hacked'
+    where client_id = '000c0bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org contact UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (client_contacts)';
+
+  -- Same-org writes work: a property and a contact on Org A's client.
+  insert into properties (organization_id, client_id, address)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '000c0aaa-0000-4000-8000-000000000001', '{"line1":"456 Elm St"}');
+  insert into client_contacts (organization_id, client_id, name)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '000c0aaa-0000-4000-8000-000000000001', 'Site Contact');
+  raise notice 'PASS: same-org property + contact insert allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

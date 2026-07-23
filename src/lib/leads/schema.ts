@@ -59,9 +59,7 @@ export const statusChangeSchema = z.object({
 
 export const assignSchema = z.object({
   leadId: z.string().uuid(),
-  assignedTo: z
-    .union([z.literal(''), z.string().uuid()])
-    .transform((v) => (v ? v : null)),
+  assignedTo: z.union([z.literal(''), z.string().uuid()]).transform((v) => (v ? v : null)),
 });
 
 export const activitySchema = z.object({
@@ -72,7 +70,5 @@ export const activitySchema = z.object({
 
 export const followUpSchema = z.object({
   leadId: z.string().uuid(),
-  nextFollowUpDate: z
-    .union([z.literal(''), z.string().date()])
-    .transform((v) => (v ? v : null)),
+  nextFollowUpDate: z.union([z.literal(''), z.string().date()]).transform((v) => (v ? v : null)),
 });

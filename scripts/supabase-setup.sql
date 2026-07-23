@@ -542,3 +542,58 @@ begin
     grant execute on function org_has_members(uuid) to service_role;
   end if;
 end $$;
+
+-- ═══ Part 6 — Task 9: client contacts, property details, fuzzy search ═══
+-- (mirrors drizzle/0005_black_boomerang.sql + 0006_client_contacts_rls.sql)
+
+CREATE TABLE IF NOT EXISTS "client_contacts" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"client_id" uuid NOT NULL,
+	"name" text NOT NULL,
+	"role" text,
+	"phone" text,
+	"email" text,
+	"is_primary" boolean DEFAULT false NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "square_footage" integer;--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "year_built" integer;--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "occupancy_status" text;--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "access_instructions" text;--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "utility_info" jsonb;--> statement-breakpoint
+ALTER TABLE "properties" ADD COLUMN "permit_jurisdiction" text;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "client_contacts" ADD CONSTRAINT "client_contacts_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE restrict ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "client_contacts" ADD CONSTRAINT "client_contacts_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "client_contacts_client_idx" ON "client_contacts" USING btree ("client_id");
+
+create trigger client_contacts_set_updated_at before update on client_contacts
+  for each row execute function set_updated_at();
+
+alter table client_contacts enable row level security;
+alter table client_contacts force row level security;
+create policy client_contacts_tenant on client_contacts
+  using (organization_id = current_org() and is_member_of(organization_id))
+  with check (organization_id = current_org() and is_member_of(organization_id));
+
+-- Fuzzy search + duplicate detection (§7): pg_trgm accelerates the ILIKE
+-- lookups on client name/email and property street address.
+create extension if not exists pg_trgm;
+create index if not exists clients_display_name_trgm_idx
+  on clients using gin (display_name gin_trgm_ops);
+create index if not exists clients_primary_email_trgm_idx
+  on clients using gin (primary_email gin_trgm_ops);
+create index if not exists properties_address_line1_trgm_idx
+  on properties using gin ((address->>'line1') gin_trgm_ops);

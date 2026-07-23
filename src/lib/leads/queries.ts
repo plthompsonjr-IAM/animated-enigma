@@ -26,7 +26,14 @@ export interface LeadListRow {
   createdAt: Date;
 }
 
-const OPEN = ['new', 'contacted', 'qualified', 'site_visit_scheduled', 'estimating', 'proposal_sent'] as const;
+const OPEN = [
+  'new',
+  'contacted',
+  'qualified',
+  'site_visit_scheduled',
+  'estimating',
+  'proposal_sent',
+] as const;
 
 /** List leads for the active org with search, status filter, assignment, and sort. */
 export async function listLeads(params: LeadListParams): Promise<LeadListRow[]> {

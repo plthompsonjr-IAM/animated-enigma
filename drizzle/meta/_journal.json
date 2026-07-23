@@ -36,6 +36,20 @@
       "when": 1784765864850,
       "tag": "0004_function_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784775944646,
+      "tag": "0005_black_boomerang",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784775956169,
+      "tag": "0006_client_contacts_rls",
+      "breakpoints": true
     }
   ]
 }

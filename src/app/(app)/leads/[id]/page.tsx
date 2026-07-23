@@ -132,7 +132,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                   className="sm:col-span-2"
                   multiline
                 />
-                <Detail label="Internal notes" value={lead.notes} className="sm:col-span-2" multiline />
+                <Detail
+                  label="Internal notes"
+                  value={lead.notes}
+                  className="sm:col-span-2"
+                  multiline
+                />
               </dl>
             </CardContent>
           </Card>
@@ -149,8 +154,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                     <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary/60" />
                     <div className="min-w-0">
                       <p className="text-sm">
-                        <span className="font-medium">{ACTIVITY_LABELS[a.activityType] ?? a.activityType}</span>
-                        {a.summary ? <span className="text-muted-foreground"> — {a.summary}</span> : null}
+                        <span className="font-medium">
+                          {ACTIVITY_LABELS[a.activityType] ?? a.activityType}
+                        </span>
+                        {a.summary ? (
+                          <span className="text-muted-foreground"> — {a.summary}</span>
+                        ) : null}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {new Date(a.occurredAt).toLocaleString('en-US', {

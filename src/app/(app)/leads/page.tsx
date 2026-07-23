@@ -24,11 +24,7 @@ interface SearchParams {
   sort?: string;
 }
 
-export default async function LeadsPage({
-  searchParams,
-}: {
-  searchParams: Promise<SearchParams>;
-}) {
+export default async function LeadsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const ctx = await getAuthContext();
 
   if (!ctx.configured || !ctx.dbAvailable || !ctx.activeOrg) {
@@ -141,7 +137,7 @@ export default async function LeadsPage({
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{lead.projectType ?? '—'}</td>
-                    <td className="tabular-nums px-4 py-2.5 text-muted-foreground">
+                    <td className="px-4 py-2.5 tabular-nums text-muted-foreground">
                       {formatBudget(lead.estimatedBudget)}
                     </td>
                     <td className="px-4 py-2.5">

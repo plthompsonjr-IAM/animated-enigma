@@ -11,11 +11,7 @@ import {
   restoreLead,
 } from '@/lib/leads/actions';
 import type { FormState } from '@/lib/auth/actions';
-import {
-  LEAD_STATUSES,
-  LEAD_STATUS_LABELS,
-  type LeadStatus,
-} from '@/lib/leads/leads-core';
+import { LEAD_STATUSES, LEAD_STATUS_LABELS, type LeadStatus } from '@/lib/leads/leads-core';
 import { Select } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -118,7 +114,12 @@ export function AddNoteForm({ leadId }: { leadId: string }) {
       <FormNotice error={state.error} message={state.message} />
       <input type="hidden" name="leadId" value={leadId} />
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Select name="activityType" defaultValue="note" aria-label="Activity type" className="sm:w-36">
+        <Select
+          name="activityType"
+          defaultValue="note"
+          aria-label="Activity type"
+          className="sm:w-36"
+        >
           <option value="note">Note</option>
           <option value="call">Call</option>
           <option value="email">Email</option>

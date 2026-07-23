@@ -73,20 +73,37 @@ describe('sortLeads', () => {
   const leads: SortableLead[] = [
     { leadName: 'Bravo', priority: 'low', nextFollowUpDate: '2026-07-25', createdAt: '2026-07-10' },
     { leadName: 'Alpha', priority: 'high', nextFollowUpDate: null, createdAt: '2026-07-15' },
-    { leadName: 'Charlie', priority: 'medium', nextFollowUpDate: '2026-07-20', createdAt: '2026-07-12' },
+    {
+      leadName: 'Charlie',
+      priority: 'medium',
+      nextFollowUpDate: '2026-07-20',
+      createdAt: '2026-07-12',
+    },
   ];
 
   it('recent = newest createdAt first', () => {
-    expect(sortLeads(leads, 'recent').map((l) => l.leadName)).toEqual(['Alpha', 'Charlie', 'Bravo']);
+    expect(sortLeads(leads, 'recent').map((l) => l.leadName)).toEqual([
+      'Alpha',
+      'Charlie',
+      'Bravo',
+    ]);
   });
   it('oldest = earliest createdAt first', () => {
-    expect(sortLeads(leads, 'oldest').map((l) => l.leadName)).toEqual(['Bravo', 'Charlie', 'Alpha']);
+    expect(sortLeads(leads, 'oldest').map((l) => l.leadName)).toEqual([
+      'Bravo',
+      'Charlie',
+      'Alpha',
+    ]);
   });
   it('name = alphabetical', () => {
     expect(sortLeads(leads, 'name').map((l) => l.leadName)).toEqual(['Alpha', 'Bravo', 'Charlie']);
   });
   it('priority = high → low, dateless handled', () => {
-    expect(sortLeads(leads, 'priority').map((l) => l.leadName)).toEqual(['Alpha', 'Charlie', 'Bravo']);
+    expect(sortLeads(leads, 'priority').map((l) => l.leadName)).toEqual([
+      'Alpha',
+      'Charlie',
+      'Bravo',
+    ]);
   });
   it('follow_up = earliest due first, nulls last', () => {
     expect(sortLeads(leads, 'follow_up').map((l) => l.leadName)).toEqual([
