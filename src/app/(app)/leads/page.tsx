@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus, Users } from 'lucide-react';
+import { Plus, Users, Phone } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import {
@@ -68,10 +68,19 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           </p>
         </div>
         {mayWrite ? (
-          <Link href="/leads/new" className={buttonVariants()}>
-            <Plus className="h-4 w-4" />
-            New lead
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/leads/intake"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              <Phone className="h-4 w-4" />
+              Quick intake
+            </Link>
+            <Link href="/leads/new" className={buttonVariants()}>
+              <Plus className="h-4 w-4" />
+              New lead
+            </Link>
+          </div>
         ) : null}
       </div>
 
