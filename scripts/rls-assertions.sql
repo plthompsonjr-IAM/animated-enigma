@@ -291,5 +291,71 @@ begin
   raise notice 'PASS: same-org property + contact insert allowed';
 end $$;
 
+-- ═══════════════ Project workspace isolation (Task 11) ═══════════════════════
+-- Seed a project in each org, plus a team member and an activity, as the
+-- service role; then verify cross-org invisibility and blocked writes.
+reset role;
+insert into projects (id, organization_id, project_number, name, client_id, status) values
+  ('000e0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   'PRJ-2026-9001', 'Org A kitchen', '000c0aaa-0000-4000-8000-000000000001', 'planning'),
+  ('000e0bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   'PRJ-2026-9002', 'Org B deck', '000c0bbb-0000-4000-8000-000000000002', 'planning');
+insert into project_team_members (organization_id, project_id, user_id) values
+  ('0000000a-0000-4000-8000-000000000001', '000e0aaa-0000-4000-8000-000000000001',
+   '00000aaa-0000-4000-8000-000000000001'),
+  ('0000000b-0000-4000-8000-000000000002', '000e0bbb-0000-4000-8000-000000000002',
+   '00000bbb-0000-4000-8000-000000000002');
+insert into project_activities (organization_id, project_id, activity_type, summary) values
+  ('0000000a-0000-4000-8000-000000000001', '000e0aaa-0000-4000-8000-000000000001', 'created', 'A'),
+  ('0000000b-0000-4000-8000-000000000002', '000e0bbb-0000-4000-8000-000000000002', 'created', 'B');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; nm text;
+begin
+  -- Alice sees only Org A's project, team member, and activity.
+  select count(*), min(name) into n, nm from projects;
+  if n <> 1 or nm <> 'Org A kitchen' then
+    raise exception 'FAIL: expected only Org A project, saw % (%)', n, nm;
+  end if;
+  raise notice 'PASS: cross-org SELECT isolation (projects)';
+
+  select count(*) into n from project_team_members;
+  if n <> 1 then raise exception 'FAIL: expected 1 team member, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (project_team_members)';
+
+  select count(*) into n from project_activities;
+  if n <> 1 then raise exception 'FAIL: expected 1 project activity, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (project_activities)';
+
+  -- Cross-org team insert (onto Org B's project) is blocked.
+  begin
+    insert into project_team_members (organization_id, project_id, user_id)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002',
+              '00000aaa-0000-4000-8000-000000000001');
+    raise exception 'FAIL: cross-org team insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org team insert blocked';
+  end;
+
+  -- Cross-org project UPDATE affects zero rows.
+  update projects set name = 'hacked'
+    where id = '000e0bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org project UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (projects)';
+
+  -- Same-org writes succeed.
+  insert into project_activities (organization_id, project_id, activity_type, summary)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '000e0aaa-0000-4000-8000-000000000001', 'note', 'Same-org note');
+  raise notice 'PASS: same-org project activity insert allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

@@ -470,7 +470,8 @@ export async function convertLead(formData: FormData): Promise<void> {
     if (!project) throw new Error('project insert returned no row');
     projectId = project.id;
 
-    // 4. Mark the lead Won + link the project, and log the conversion.
+    // 4. Mark the lead Won + link the project, and log the conversion on both
+    // the lead timeline and the new project's timeline.
     await tx
       .update(schema.leads)
       .set({ status: 'won', convertedProjectId: project.id, clientId: client.id, propertyId })
@@ -481,6 +482,14 @@ export async function convertLead(formData: FormData): Promise<void> {
         projectId: project.id,
       }),
     );
+    await tx.insert(schema.projectActivities).values({
+      organizationId: orgId,
+      projectId: project.id,
+      activityType: 'created',
+      summary: `Created from lead “${lead.leadName}”`,
+      metadata: { sourceLeadId: lead.id, clientId: client.id },
+      createdBy: userId,
+    });
   });
 
   if (projectId) {

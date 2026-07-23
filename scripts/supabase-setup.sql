@@ -602,3 +602,103 @@ create index if not exists properties_address_line1_trgm_idx
 
 create schema if not exists extensions;
 alter extension pg_trgm set schema extensions;
+
+-- ═══ Part 8 — Task 11: project workspace (expanded projects, team, activity) ═══
+-- (mirrors drizzle/0008_spotty_mojo.sql + 0009_project_workspace_rls.sql)
+
+CREATE TYPE "public"."payment_state" AS ENUM('none', 'deposit_due', 'deposit_paid', 'partial', 'paid_in_full', 'overdue');--> statement-breakpoint
+CREATE TYPE "public"."permit_status" AS ENUM('not_required', 'not_started', 'applied', 'approved', 'inspections', 'final_approved', 'closed');--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "project_activities" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
+	"activity_type" text NOT NULL,
+	"summary" text,
+	"metadata" jsonb,
+	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "project_team_members" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid NOT NULL,
+	"project_id" uuid NOT NULL,
+	"user_id" uuid,
+	"subcontractor_id" uuid,
+	"role_on_project" "user_role",
+	"assigned_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "contract_value" numeric(14, 2) DEFAULT '0';--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "budget" numeric(14, 2);--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "expected_start" date;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "expected_completion" date;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "actual_start" date;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "actual_completion" date;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "permit_status" "permit_status" DEFAULT 'not_required' NOT NULL;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "payment_state" "payment_state" DEFAULT 'none' NOT NULL;--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "project_activities" ADD CONSTRAINT "project_activities_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE restrict ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "project_activities" ADD CONSTRAINT "project_activities_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "project_activities" ADD CONSTRAINT "project_activities_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "project_team_members" ADD CONSTRAINT "project_team_members_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE restrict ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "project_team_members" ADD CONSTRAINT "project_team_members_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "project_team_members" ADD CONSTRAINT "project_team_members_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "project_activities_project_idx" ON "project_activities" USING btree ("project_id","occurred_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "project_team_project_idx" ON "project_team_members" USING btree ("project_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "project_team_unique_user_idx" ON "project_team_members" USING btree ("project_id","user_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "projects_client_idx" ON "projects" USING btree ("client_id");
+-- Task 11: updated_at triggers and tenant RLS for the project workspace tables
+-- (project_team_members, project_activities). Same baseline tenant boundary as
+-- the rest of the app: a row is visible/writable only to members of its org.
+-- project_activities is append-only in the service tier; RLS still scopes reads.
+
+create trigger project_team_members_set_updated_at before update on project_team_members
+  for each row execute function set_updated_at();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['project_team_members','project_activities']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

@@ -143,6 +143,25 @@ export const projectStatusEnum = pgEnum('project_status', [
   'cancelled',
 ]);
 
+export const permitStatusEnum = pgEnum('permit_status', [
+  'not_required',
+  'not_started',
+  'applied',
+  'approved',
+  'inspections',
+  'final_approved',
+  'closed',
+]);
+
+export const paymentStateEnum = pgEnum('payment_state', [
+  'none',
+  'deposit_due',
+  'deposit_paid',
+  'partial',
+  'paid_in_full',
+  'overdue',
+]);
+
 /**
  * Clients — the customer record (Tasks 8–9): an individual or company with
  * contact details, billing address, tags, and one or more properties.
@@ -313,6 +332,17 @@ export const projects = pgTable(
     salespersonId: uuid('salesperson_id').references(() => users.id),
     status: projectStatusEnum('status').notNull().default('planning'),
     projectType: text('project_type'),
+    // Financials: contract_value is kept in sync by change orders (Task 30);
+    // budget is the internal target. Both are visible only to cost-cleared roles.
+    contractValue: numeric('contract_value', { precision: 14, scale: 2 }).default('0'),
+    budget: numeric('budget', { precision: 14, scale: 2 }),
+    // Key dates: expected (planned) vs actual (recorded as the job runs).
+    expectedStart: date('expected_start'),
+    expectedCompletion: date('expected_completion'),
+    actualStart: date('actual_start'),
+    actualCompletion: date('actual_completion'),
+    permitStatus: permitStatusEnum('permit_status').notNull().default('not_required'),
+    paymentState: paymentStateEnum('payment_state').notNull().default('none'),
     description: text('description'),
     internalNotes: text('internal_notes'),
     createdBy: uuid('created_by').references(() => users.id),
@@ -323,7 +353,61 @@ export const projects = pgTable(
   (table) => [
     uniqueIndex('projects_org_number_idx').on(table.organizationId, table.projectNumber),
     index('projects_org_status_idx').on(table.organizationId, table.status),
+    index('projects_client_idx').on(table.clientId),
   ],
+);
+
+/**
+ * Project team — the internal people assigned to a project beyond the three
+ * headline roles (PM/foreman/salesperson) stored on the project row. The
+ * subcontractor FK is added once the subcontractors table exists (Task 33).
+ */
+export const projectTeamMembers = pgTable(
+  'project_team_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id),
+    subcontractorId: uuid('subcontractor_id'),
+    roleOnProject: userRoleEnum('role_on_project'),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('project_team_project_idx').on(table.projectId),
+    uniqueIndex('project_team_unique_user_idx').on(table.projectId, table.userId),
+  ],
+);
+
+/**
+ * Project activity timeline — status changes, assignments, notes, and
+ * milestones, mirroring lead_activities. The workspace feed and the audit
+ * trail both read from here.
+ */
+export const projectActivities = pgTable(
+  'project_activities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    activityType: text('activity_type').notNull(),
+    summary: text('summary'),
+    metadata: jsonb('metadata'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('project_activities_project_idx').on(table.projectId, table.occurredAt)],
 );
 
 // deferred self/forward references
@@ -337,3 +421,5 @@ export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
 export type LeadActivity = typeof leadActivities.$inferSelect;
 export type Project = typeof projects.$inferSelect;
+export type ProjectTeamMember = typeof projectTeamMembers.$inferSelect;
+export type ProjectActivity = typeof projectActivities.$inferSelect;
