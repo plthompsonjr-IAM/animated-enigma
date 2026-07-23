@@ -29,6 +29,13 @@
       "when": 1784690479665,
       "tag": "0003_crm_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784765864850,
+      "tag": "0004_function_hardening",
+      "breakpoints": true
     }
   ]
 }

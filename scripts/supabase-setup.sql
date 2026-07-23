@@ -512,3 +512,33 @@ begin
   end loop;
 end $$;
 
+
+-- ═══ Part 5 — Function hardening (mirrors drizzle/0004_function_hardening.sql) ═══
+
+alter function set_updated_at() set search_path = public;
+alter function current_org() set search_path = public;
+
+do $$
+begin
+  revoke execute on function is_member_of(uuid) from public;
+  revoke execute on function has_role(uuid, user_role) from public;
+  revoke execute on function org_has_members(uuid) from public;
+
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke execute on function is_member_of(uuid) from anon;
+    revoke execute on function has_role(uuid, user_role) from anon;
+    revoke execute on function org_has_members(uuid) from anon;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    grant execute on function is_member_of(uuid) to authenticated;
+    grant execute on function has_role(uuid, user_role) to authenticated;
+    grant execute on function org_has_members(uuid) to authenticated;
+  end if;
+
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function is_member_of(uuid) to service_role;
+    grant execute on function has_role(uuid, user_role) to service_role;
+    grant execute on function org_has_members(uuid) to service_role;
+  end if;
+end $$;
