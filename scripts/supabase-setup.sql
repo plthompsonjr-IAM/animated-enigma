@@ -597,3 +597,8 @@ create index if not exists clients_primary_email_trgm_idx
   on clients using gin (primary_email gin_trgm_ops);
 create index if not exists properties_address_line1_trgm_idx
   on properties using gin ((address->>'line1') gin_trgm_ops);
+
+-- ═══ Part 7 — Relocate pg_trgm out of the public schema ═══
+
+create schema if not exists extensions;
+alter extension pg_trgm set schema extensions;
