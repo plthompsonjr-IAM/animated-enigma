@@ -4,10 +4,13 @@ import { Phone, Mail, Pencil } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { getLead, getLeadActivities, assignableMembers } from '@/lib/leads/queries';
+import { visitsForLead } from '@/lib/site-visits/queries';
 import { PRIORITY_LABELS, type LeadStatus, type Priority } from '@/lib/leads/leads-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { StatusBadge, FollowUpText } from '@/components/leads/lead-badges';
+import { ScheduleVisitForm } from '@/components/site-visits/schedule-visit-form';
+import { VisitList } from '@/components/site-visits/visit-list';
 import {
   StatusChanger,
   AssignPicker,
@@ -29,6 +32,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   call: 'Call',
   email: 'Email',
   meeting: 'Meeting',
+  site_visit: 'Site visit',
   converted: 'Converted',
   archived: 'Archived',
   restored: 'Restored',
@@ -43,11 +47,14 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
 
   const orgId = ctx.activeOrg.organizationId;
   const mayWrite = can(ctx.activeOrg.roles, 'leads:write', ctx.activeOrg.extraPermissions);
+  const maySchedule = can(ctx.activeOrg.roles, 'schedule:write', ctx.activeOrg.extraPermissions);
+  const mayReadSchedule = can(ctx.activeOrg.roles, 'schedule:read', ctx.activeOrg.extraPermissions);
 
-  const [row, activities, members] = await Promise.all([
+  const [row, activities, members, visits] = await Promise.all([
     getLead(orgId, id),
     getLeadActivities(orgId, id),
     assignableMembers(orgId),
+    mayReadSchedule ? visitsForLead(orgId, id) : Promise.resolve([]),
   ]);
   if (!row) notFound();
 
@@ -240,6 +247,25 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
                   to the project.
                 </p>
                 <ConvertButton leadId={lead.id} converted={converted} />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {mayReadSchedule ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Site visits</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {maySchedule && !archived ? (
+                  <ScheduleVisitForm leadId={lead.id} members={members} />
+                ) : null}
+                <VisitList
+                  visits={visits}
+                  members={members}
+                  mayWrite={maySchedule}
+                  emptyText="No site visits scheduled yet."
+                />
               </CardContent>
             </Card>
           ) : null}

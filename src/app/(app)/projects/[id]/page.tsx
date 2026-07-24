@@ -20,7 +20,11 @@ import {
   getProjectTeam,
   getProjectActivities,
   addableTeamMembers,
+  assignableMembers,
 } from '@/lib/projects/queries';
+import { visitsForProject } from '@/lib/site-visits/queries';
+import { ScheduleVisitForm } from '@/components/site-visits/schedule-visit-form';
+import { VisitList } from '@/components/site-visits/visit-list';
 import {
   PERMIT_STATUS_LABELS,
   PAYMENT_STATE_LABELS,
@@ -51,6 +55,7 @@ const ACTIVITY_LABELS: Record<string, string> = {
   status_change: 'Status change',
   team: 'Team',
   note: 'Note',
+  site_visit: 'Site visit',
   archived: 'Archived',
   restored: 'Restored',
 };
@@ -76,16 +81,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const orgId = ctx.activeOrg.organizationId;
   const mayWrite = can(ctx.activeOrg.roles, 'projects:write', ctx.activeOrg.extraPermissions);
   const showCosts = can(ctx.activeOrg.roles, 'costs:read', ctx.activeOrg.extraPermissions);
+  const maySchedule = can(ctx.activeOrg.roles, 'schedule:write', ctx.activeOrg.extraPermissions);
+  const mayReadSchedule = can(ctx.activeOrg.roles, 'schedule:read', ctx.activeOrg.extraPermissions);
 
   const row = await getProject(orgId, id);
   if (!row) notFound();
   const p = row.project;
 
-  const [property, team, activities, addableMembers] = await Promise.all([
+  const [property, team, activities, addableMembers, allMembers, visits] = await Promise.all([
     p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
     getProjectTeam(orgId, id),
     getProjectActivities(orgId, id),
     mayWrite ? addableTeamMembers(orgId, id) : Promise.resolve([]),
+    mayReadSchedule ? assignableMembers(orgId) : Promise.resolve([]),
+    mayReadSchedule ? visitsForProject(orgId, id) : Promise.resolve([]),
   ]);
 
   const archived = Boolean(p.deletedAt);
@@ -335,6 +344,25 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               ) : null}
             </CardContent>
           </Card>
+
+          {mayReadSchedule ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Site visits</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {maySchedule && !archived ? (
+                  <ScheduleVisitForm projectId={p.id} members={allMembers} />
+                ) : null}
+                <VisitList
+                  visits={visits}
+                  members={allMembers}
+                  mayWrite={maySchedule}
+                  emptyText="No site visits scheduled yet."
+                />
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>

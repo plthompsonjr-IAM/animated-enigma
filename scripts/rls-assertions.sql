@@ -357,5 +357,53 @@ begin
   raise notice 'PASS: same-org project activity insert allowed';
 end $$;
 
+-- ═══════════════════ Site visit isolation (Task 12) ═════════════════════════
+-- Seed a scheduled visit in each org (one against a lead, one a project) as the
+-- service role; then verify cross-org invisibility and blocked writes.
+reset role;
+insert into site_visits (id, organization_id, lead_id, visit_type, scheduled_at, status) values
+  ('000f0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '0000dead-0000-4000-8000-000000000001', 'estimate', now() + interval '2 days', 'scheduled');
+insert into site_visits (id, organization_id, project_id, visit_type, scheduled_at, status) values
+  ('000f0bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'measurement', now() + interval '3 days', 'scheduled');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Alice sees only Org A's visit.
+  select count(*) into n from site_visits;
+  if n <> 1 then raise exception 'FAIL: expected 1 visible site visit, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (site_visits)';
+
+  -- Cross-org visit insert (against Org B's project) is blocked.
+  begin
+    insert into site_visits (organization_id, project_id, visit_type, scheduled_at)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', 'estimate', now());
+    raise exception 'FAIL: cross-org site visit insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org site visit insert blocked';
+  end;
+
+  -- Cross-org UPDATE (completing Org B's visit) affects zero rows.
+  update site_visits set status = 'completed'
+    where id = '000f0bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org site visit UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (site_visits)';
+
+  -- Same-org visit insert succeeds.
+  insert into site_visits (organization_id, lead_id, visit_type, scheduled_at)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '0000dead-0000-4000-8000-000000000001', 'walkthrough', now() + interval '1 day');
+  raise notice 'PASS: same-org site visit insert allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

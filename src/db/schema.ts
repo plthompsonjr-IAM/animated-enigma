@@ -410,6 +410,56 @@ export const projectActivities = pgTable(
   (table) => [index('project_activities_project_idx').on(table.projectId, table.occurredAt)],
 );
 
+export const siteVisitStatusEnum = pgEnum('site_visit_status', [
+  'scheduled',
+  'completed',
+  'cancelled',
+]);
+
+export const siteVisitTypeEnum = pgEnum('site_visit_type', [
+  'estimate',
+  'measurement',
+  'inspection',
+  'walkthrough',
+  'other',
+]);
+
+/**
+ * Site visits — scheduled trips to a lead's or project's property for an
+ * estimate, measurement, inspection, or walkthrough (Task 12). Assigned to a
+ * team member; carries free-form measurements and a google_event_id slot for
+ * the calendar-sync groundwork (wired to Google Calendar in a later task).
+ */
+export const siteVisits = pgTable(
+  'site_visits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    leadId: uuid('lead_id').references(() => leads.id, { onDelete: 'cascade' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    visitType: siteVisitTypeEnum('visit_type').notNull().default('estimate'),
+    scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
+    durationMinutes: integer('duration_minutes').notNull().default(60),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    assignedTo: uuid('assigned_to').references(() => users.id),
+    status: siteVisitStatusEnum('status').notNull().default('scheduled'),
+    notes: text('notes'),
+    measurements: jsonb('measurements'),
+    googleEventId: text('google_event_id'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('site_visits_org_scheduled_idx').on(table.organizationId, table.scheduledAt),
+    index('site_visits_lead_idx').on(table.leadId),
+    index('site_visits_project_idx').on(table.projectId),
+    index('site_visits_assigned_idx').on(table.assignedTo),
+  ],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -423,3 +473,4 @@ export type LeadActivity = typeof leadActivities.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectTeamMember = typeof projectTeamMembers.$inferSelect;
 export type ProjectActivity = typeof projectActivities.$inferSelect;
+export type SiteVisit = typeof siteVisits.$inferSelect;
