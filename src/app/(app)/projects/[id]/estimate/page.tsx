@@ -11,6 +11,7 @@ import {
 } from '@/lib/estimates/queries';
 import { isEditable, formatMoney, formatMarginPct } from '@/lib/estimates/estimate-core';
 import { createEstimate } from '@/lib/estimates/actions';
+import { createProposal } from '@/lib/proposals/actions';
 import { listCatalogItems } from '@/lib/catalog/queries';
 import type { Unit } from '@/lib/catalog/catalog-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -146,6 +147,19 @@ async function EstimateBody({
             <p className="rounded-md bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
               This estimate is {version.status}. To change it, create a new version.
             </p>
+          ) : null}
+          {mayWrite ? (
+            <form action={createProposal} className="border-t pt-3">
+              <input type="hidden" name="projectId" value={projectId} />
+              <input type="hidden" name="estimateVersionId" value={selectedId} />
+              <Button type="submit" size="sm" variant="outline">
+                Create proposal from this estimate
+              </Button>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Generates a client-facing proposal (scope + price, no costs) you can send for
+                acceptance.
+              </p>
+            </form>
           ) : null}
         </CardContent>
       </Card>

@@ -646,5 +646,62 @@ begin
   raise notice 'PASS: same-org estimate line insert allowed';
 end $$;
 
+-- ═══════════════════ Proposal isolation (Task 17) ══════════════════════════
+-- Seed a proposal + version + event in each org as the service role.
+reset role;
+insert into proposals (id, organization_id, project_id, proposal_number, status) values
+  ('00200aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'PROP-2026-0001', 'draft'),
+  ('00200bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'PROP-2026-0001', 'draft');
+insert into proposal_versions (id, organization_id, proposal_id, version_number, secure_link_token_hash) values
+  ('00210aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '00200aaa-0000-4000-8000-000000000001', 1, 'hasha'),
+  ('00210bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '00200bbb-0000-4000-8000-000000000002', 1, 'hashb');
+insert into proposal_events (organization_id, proposal_version_id, event_type) values
+  ('0000000a-0000-4000-8000-000000000001', '00210aaa-0000-4000-8000-000000000001', 'created'),
+  ('0000000b-0000-4000-8000-000000000002', '00210bbb-0000-4000-8000-000000000002', 'created');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from proposals;
+  if n <> 1 then raise exception 'FAIL: expected 1 proposal, saw %', n; end if;
+  select count(*) into n from proposal_versions;
+  if n <> 1 then raise exception 'FAIL: expected 1 proposal version, saw %', n; end if;
+  select count(*) into n from proposal_events;
+  if n <> 1 then raise exception 'FAIL: expected 1 proposal event, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (proposals)';
+
+  -- Cross-org event insert (onto Org B's version) is blocked.
+  begin
+    insert into proposal_events (organization_id, proposal_version_id, event_type)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '00210bbb-0000-4000-8000-000000000002', 'viewed');
+    raise exception 'FAIL: cross-org proposal event insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org proposal event insert blocked';
+  end;
+
+  -- Cross-org UPDATE (accepting Org B's proposal) affects zero rows.
+  update proposals set status = 'accepted'
+    where id = '00200bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org proposal UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (proposals)';
+
+  -- Same-org event insert succeeds.
+  insert into proposal_events (organization_id, proposal_version_id, event_type)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00210aaa-0000-4000-8000-000000000001', 'sent');
+  raise notice 'PASS: same-org proposal event insert allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

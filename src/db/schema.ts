@@ -187,6 +187,17 @@ export const lineItemTypeEnum = pgEnum('line_item_type', [
   'other',
 ]);
 
+/** Client-facing proposal lifecycle (Task 17). */
+export const proposalStatusEnum = pgEnum('proposal_status', [
+  'draft',
+  'sent',
+  'viewed',
+  'accepted',
+  'declined',
+  'changes_requested',
+  'expired',
+]);
+
 /**
  * Clients — the customer record (Tasks 8–9): an individual or company with
  * contact details, billing address, tags, and one or more properties.
@@ -754,10 +765,89 @@ export const estimateLineItems = pgTable(
   ],
 );
 
+/**
+ * Proposals (Task 17) — the client-facing document derived from an approved
+ * estimate + scope. Each generated version snapshots a client-safe view model
+ * (no costs/margins) and carries its own secure share-link token. Delivery and
+ * engagement are audited in proposal_events. Signatures land in Task 19.
+ */
+export const proposals = pgTable(
+  'proposals',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    proposalNumber: text('proposal_number').notNull(),
+    estimateVersionId: uuid('estimate_version_id').references(() => estimateVersions.id),
+    scopeVersionId: uuid('scope_version_id').references(() => scopeVersions.id),
+    currentVersionId: uuid('current_version_id'),
+    status: proposalStatusEnum('status').notNull().default('draft'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('proposals_org_number_idx').on(table.organizationId, table.proposalNumber),
+    index('proposals_project_idx').on(table.projectId),
+  ],
+);
+
+/** Each generated proposal is a version with its own client-safe snapshot. */
+export const proposalVersions = pgTable(
+  'proposal_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    proposalId: uuid('proposal_id')
+      .notNull()
+      .references(() => proposals.id, { onDelete: 'cascade' }),
+    versionNumber: integer('version_number').notNull(),
+    pdfDocumentId: uuid('pdf_document_id'),
+    contentSnapshot: jsonb('content_snapshot'),
+    secureLinkTokenHash: text('secure_link_token_hash'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('proposal_versions_number_idx').on(table.proposalId, table.versionNumber),
+    index('proposal_versions_token_idx').on(table.secureLinkTokenHash),
+  ],
+);
+
+/** Delivery/engagement audit: sent, viewed, accepted, declined, … */
+export const proposalEvents = pgTable(
+  'proposal_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    proposalVersionId: uuid('proposal_version_id')
+      .notNull()
+      .references(() => proposalVersions.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    actorEmail: text('actor_email'),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    metadata: jsonb('metadata'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('proposal_events_version_idx').on(table.proposalVersionId, table.occurredAt)],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
 // scopes.current_version_id / approved_version_id → scope_versions.id likewise.
+// proposals.current_version_id → proposal_versions.id likewise.
 
 export type Client = typeof clients.$inferSelect;
 export type ClientContact = typeof clientContacts.$inferSelect;
@@ -778,3 +868,6 @@ export type CostCatalogItem = typeof costCatalogItems.$inferSelect;
 export type CatalogPriceHistory = typeof catalogPriceHistory.$inferSelect;
 export type EstimateVersion = typeof estimateVersions.$inferSelect;
 export type EstimateLineItem = typeof estimateLineItems.$inferSelect;
+export type Proposal = typeof proposals.$inferSelect;
+export type ProposalVersion = typeof proposalVersions.$inferSelect;
+export type ProposalEvent = typeof proposalEvents.$inferSelect;

@@ -6,7 +6,7 @@
 
 const AUTH_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email'];
 
-const PUBLIC_PATHS = [...AUTH_PATHS, '/auth/callback', '/invite', '/intake'];
+const PUBLIC_PATHS = [...AUTH_PATHS, '/auth/callback', '/invite', '/intake', '/proposal'];
 
 const PROTECTED_PREFIXES = [
   '/dashboard',
