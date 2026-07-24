@@ -162,6 +162,21 @@ export const paymentStateEnum = pgEnum('payment_state', [
   'overdue',
 ]);
 
+/** Units of measure for cost-catalog items and estimate lines (Task 15). */
+export const unitOfMeasureEnum = pgEnum('unit_of_measure', [
+  'each',
+  'linear_foot',
+  'square_foot',
+  'cubic_yard',
+  'hour',
+  'day',
+  'allowance',
+  'lump_sum',
+]);
+
+/** Quality tier for material catalog items (Task 15). */
+export const materialTierEnum = pgEnum('material_tier', ['economic', 'standard', 'premium']);
+
 /**
  * Clients — the customer record (Tasks 8–9): an individual or company with
  * contact details, billing address, tags, and one or more properties.
@@ -580,6 +595,65 @@ export const scopeTemplates = pgTable(
   (table) => [index('scope_templates_org_idx').on(table.organizationId)],
 );
 
+/**
+ * Cost catalog (Task 15) — the library of labor/material/equipment items an
+ * estimate is built from. A null organization_id marks a platform-global item
+ * (visible to all, editable by none through the app); org rows are private.
+ * Costs are stored to 4 decimals for accurate roll-ups.
+ */
+export const costCatalogItems = pgTable(
+  'cost_catalog_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').references(() => organizations.id, {
+      onDelete: 'cascade',
+    }),
+    name: text('name').notNull(),
+    trade: text('trade'),
+    description: text('description'),
+    unit: unitOfMeasureEnum('unit').notNull().default('each'),
+    defaultMaterialCost: numeric('default_material_cost', { precision: 12, scale: 4 }).default('0'),
+    defaultLaborHours: numeric('default_labor_hours', { precision: 12, scale: 4 }).default('0'),
+    defaultLaborRate: numeric('default_labor_rate', { precision: 12, scale: 4 }).default('0'),
+    equipmentCost: numeric('equipment_cost', { precision: 12, scale: 4 }).default('0'),
+    wastePct: numeric('waste_pct', { precision: 6, scale: 4 }).default('0'),
+    vendor: text('vendor'),
+    vendorItemNumber: text('vendor_item_number'),
+    region: text('region'),
+    tier: materialTierEnum('tier').default('standard'),
+    lastVerifiedDate: date('last_verified_date'),
+    isActive: boolean('is_active').notNull().default(true),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('cost_catalog_org_idx').on(table.organizationId),
+    index('cost_catalog_trade_idx').on(table.trade),
+  ],
+);
+
+/** Append-only price snapshots for a catalog item (Task 15). */
+export const catalogPriceHistory = pgTable(
+  'catalog_price_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').references(() => organizations.id, {
+      onDelete: 'cascade',
+    }),
+    catalogItemId: uuid('catalog_item_id')
+      .notNull()
+      .references(() => costCatalogItems.id, { onDelete: 'cascade' }),
+    materialCost: numeric('material_cost', { precision: 12, scale: 4 }),
+    laborRate: numeric('labor_rate', { precision: 12, scale: 4 }),
+    effectiveDate: date('effective_date').notNull().defaultNow(),
+    source: text('source'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('catalog_price_history_item_idx').on(table.catalogItemId, table.effectiveDate)],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -600,3 +674,5 @@ export type ScopeVersion = typeof scopeVersions.$inferSelect;
 export type ScopeSection = typeof scopeSections.$inferSelect;
 export type ScopeItem = typeof scopeItems.$inferSelect;
 export type ScopeTemplate = typeof scopeTemplates.$inferSelect;
+export type CostCatalogItem = typeof costCatalogItems.$inferSelect;
+export type CatalogPriceHistory = typeof catalogPriceHistory.$inferSelect;

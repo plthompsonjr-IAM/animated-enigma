@@ -532,5 +532,68 @@ begin
   raise notice 'PASS: own-org scope template writes allowed';
 end $$;
 
+-- ═══════════════════ Cost catalog isolation (Task 15) ══════════════════════
+-- Seed a global item (null org), one for Org A, one for Org B.
+reset role;
+insert into cost_catalog_items (id, organization_id, name, unit) values
+  ('00160000-0000-4000-8000-000000000000', null, 'Global 2x4', 'linear_foot'),
+  ('00160aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001', 'Org A drywall', 'square_foot'),
+  ('00160bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002', 'Org B tile', 'square_foot');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Alice sees the global item + her org's, but not Org B's.
+  select count(*) into n from cost_catalog_items;
+  if n <> 2 then raise exception 'FAIL: expected global + Org A catalog item (2), saw %', n; end if;
+  raise notice 'PASS: cost_catalog read = own org + global (isolation)';
+
+  -- Cannot create a global item or one for another org.
+  begin
+    insert into cost_catalog_items (organization_id, name, unit)
+      values (null, 'sneaky', 'each');
+    raise exception 'FAIL: global catalog insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cannot create a global catalog item';
+  end;
+  begin
+    insert into cost_catalog_items (organization_id, name, unit)
+      values ('0000000b-0000-4000-8000-000000000002', 'evil', 'each');
+    raise exception 'FAIL: cross-org catalog insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cannot create a catalog item for another org';
+  end;
+
+  -- Cannot modify the global item.
+  update cost_catalog_items set name = 'hacked'
+    where id = '00160000-0000-4000-8000-000000000000';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: global catalog UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cannot modify a global catalog item';
+
+  -- Same-org insert + price-history insert succeed.
+  insert into cost_catalog_items (organization_id, name, unit)
+    values ('0000000a-0000-4000-8000-000000000001', 'Org A paint', 'square_foot');
+  insert into catalog_price_history (organization_id, catalog_item_id, material_cost)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00160aaa-0000-4000-8000-000000000001', 0.85);
+  raise notice 'PASS: own-org catalog + price-history writes allowed';
+
+  -- Cannot write price history against a foreign org.
+  begin
+    insert into catalog_price_history (organization_id, catalog_item_id, material_cost)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '00160bbb-0000-4000-8000-000000000002', 9.99);
+    raise exception 'FAIL: cross-org price-history insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org price-history insert blocked';
+  end;
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

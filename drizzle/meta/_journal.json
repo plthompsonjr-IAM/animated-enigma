@@ -113,6 +113,20 @@
       "when": 1784869258697,
       "tag": "0015_scope_templates_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1784872109256,
+      "tag": "0016_nappy_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1784872121091,
+      "tag": "0017_cost_catalog_rls",
+      "breakpoints": true
     }
   ]
 }
