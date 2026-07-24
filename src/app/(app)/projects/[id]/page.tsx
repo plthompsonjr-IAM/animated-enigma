@@ -60,9 +60,14 @@ const ACTIVITY_LABELS: Record<string, string> = {
   restored: 'Restored',
 };
 
-/** The workspace sections that later tasks fill in — shown as navigable cards. */
-const WORKSPACE_SECTIONS = [
-  { label: 'Scope of work', icon: FileText, note: 'Task 13' },
+/** The workspace sections. Live ones link out; the rest land with later tasks. */
+const WORKSPACE_SECTIONS: {
+  label: string;
+  icon: typeof FileText;
+  note?: string;
+  path?: string;
+}[] = [
+  { label: 'Scope of work', icon: FileText, path: 'scope' },
   { label: 'Estimate', icon: Calculator, note: 'Task 16' },
   { label: 'Schedule & tasks', icon: CalendarRange, note: 'Task 22' },
   { label: 'Daily logs', icon: ListChecks, note: 'Task 24' },
@@ -223,6 +228,19 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {WORKSPACE_SECTIONS.map((s) => {
                   const Icon = s.icon;
+                  if (s.path) {
+                    return (
+                      <Link
+                        key={s.label}
+                        href={`/projects/${p.id}/${s.path}`}
+                        className="flex flex-col gap-1.5 rounded-md border p-3 transition-colors hover:border-primary/50 hover:bg-accent/40"
+                      >
+                        <Icon className="h-5 w-5 text-primary" />
+                        <span className="text-sm font-medium">{s.label}</span>
+                        <span className="text-[11px] text-muted-foreground">Open</span>
+                      </Link>
+                    );
+                  }
                   return (
                     <div
                       key={s.label}

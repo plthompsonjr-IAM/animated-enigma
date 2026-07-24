@@ -405,5 +405,74 @@ begin
   raise notice 'PASS: same-org site visit insert allowed';
 end $$;
 
+-- ═══════════════════ Scope of work isolation (Task 13) ══════════════════════
+-- Seed a scope + draft version + section + item in each org as the service role.
+reset role;
+insert into scopes (id, organization_id, project_id, title) values
+  ('00110aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'Org A scope'),
+  ('00110bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'Org B scope');
+insert into scope_versions (id, organization_id, scope_id, version_number, status) values
+  ('00120aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '00110aaa-0000-4000-8000-000000000001', 1, 'draft'),
+  ('00120bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '00110bbb-0000-4000-8000-000000000002', 1, 'draft');
+insert into scope_sections (id, organization_id, scope_version_id, section_type, title) values
+  ('00130aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '00120aaa-0000-4000-8000-000000000001', 'included', 'Included'),
+  ('00130bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '00120bbb-0000-4000-8000-000000000002', 'included', 'Included');
+insert into scope_items (organization_id, scope_section_id, description) values
+  ('0000000a-0000-4000-8000-000000000001', '00130aaa-0000-4000-8000-000000000001', 'Demo bathroom'),
+  ('0000000b-0000-4000-8000-000000000002', '00130bbb-0000-4000-8000-000000000002', 'Frame deck');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from scopes;
+  if n <> 1 then raise exception 'FAIL: expected 1 scope, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (scopes)';
+
+  select count(*) into n from scope_versions;
+  if n <> 1 then raise exception 'FAIL: expected 1 scope version, saw %', n; end if;
+  select count(*) into n from scope_sections;
+  if n <> 1 then raise exception 'FAIL: expected 1 scope section, saw %', n; end if;
+  select count(*) into n from scope_items;
+  if n <> 1 then raise exception 'FAIL: expected 1 scope item, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (versions/sections/items)';
+
+  -- Cross-org section insert (onto Org B's version) is blocked.
+  begin
+    insert into scope_sections (organization_id, scope_version_id, section_type, title)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '00120bbb-0000-4000-8000-000000000002', 'excluded', 'evil');
+    raise exception 'FAIL: cross-org scope section insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org scope section insert blocked';
+  end;
+
+  -- Cross-org UPDATE on Org B's item affects zero rows.
+  update scope_items set description = 'hacked'
+    where id in (select id from scope_items);
+  -- (only Org A's item is visible, so this can't touch Org B's row)
+  update scope_versions set status = 'locked'
+    where id = '00120bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org version UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (scope_versions)';
+
+  -- Same-org insert succeeds.
+  insert into scope_items (organization_id, scope_section_id, description)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00130aaa-0000-4000-8000-000000000001', 'Install vanity');
+  raise notice 'PASS: same-org scope item insert allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

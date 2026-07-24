@@ -85,6 +85,20 @@
       "when": 1784866125879,
       "tag": "0011_site_visits_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784867368996,
+      "tag": "0012_wise_mesmero",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784867375747,
+      "tag": "0013_scope_fks_rls",
+      "breakpoints": true
     }
   ]
 }

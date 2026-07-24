@@ -410,6 +410,15 @@ export const projectActivities = pgTable(
   (table) => [index('project_activities_project_idx').on(table.projectId, table.occurredAt)],
 );
 
+/** Shared version lifecycle for scopes (Task 13), estimates, and proposals. */
+export const versionStatusEnum = pgEnum('version_status', [
+  'draft',
+  'in_review',
+  'approved',
+  'locked',
+  'superseded',
+]);
+
 export const siteVisitStatusEnum = pgEnum('site_visit_status', [
   'scheduled',
   'completed',
@@ -460,9 +469,97 @@ export const siteVisits = pgTable(
   ],
 );
 
+/**
+ * Scope of work (Task 13) — versioned. `scopes` is the stable per-project
+ * container; each edit produces a new immutable `scope_versions` row (draft →
+ * in_review → approved → locked, older ones superseded). The current/approved
+ * pointer FKs are wired in the SQL migration (circular at DDL time).
+ */
+export const scopes = pgTable(
+  'scopes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    currentVersionId: uuid('current_version_id'),
+    approvedVersionId: uuid('approved_version_id'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('scopes_project_idx').on(table.projectId)],
+);
+
+/** Insert-only version snapshots — never edited in place once superseded. */
+export const scopeVersions = pgTable(
+  'scope_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    scopeId: uuid('scope_id')
+      .notNull()
+      .references(() => scopes.id, { onDelete: 'cascade' }),
+    versionNumber: integer('version_number').notNull(),
+    status: versionStatusEnum('status').notNull().default('draft'),
+    source: text('source'), // scratch | copied | template | ai_generated
+    aiGenerated: boolean('ai_generated').notNull().default(false),
+    aiGeneratedDocumentId: uuid('ai_generated_document_id'),
+    notes: text('notes'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    approvedBy: uuid('approved_by').references(() => users.id),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('scope_versions_number_idx').on(table.scopeId, table.versionNumber)],
+);
+
+/** Sections group scope items by intent (included/excluded/allowance/…). */
+export const scopeSections = pgTable(
+  'scope_sections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    scopeVersionId: uuid('scope_version_id')
+      .notNull()
+      .references(() => scopeVersions.id, { onDelete: 'cascade' }),
+    sectionType: text('section_type').notNull(),
+    title: text('title').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('scope_sections_version_idx').on(table.scopeVersionId, table.sortOrder)],
+);
+
+export const scopeItems = pgTable(
+  'scope_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    scopeSectionId: uuid('scope_section_id')
+      .notNull()
+      .references(() => scopeSections.id, { onDelete: 'cascade' }),
+    description: text('description').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('scope_items_section_idx').on(table.scopeSectionId, table.sortOrder)],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
+// scopes.current_version_id / approved_version_id → scope_versions.id likewise.
 
 export type Client = typeof clients.$inferSelect;
 export type ClientContact = typeof clientContacts.$inferSelect;
@@ -474,3 +571,7 @@ export type Project = typeof projects.$inferSelect;
 export type ProjectTeamMember = typeof projectTeamMembers.$inferSelect;
 export type ProjectActivity = typeof projectActivities.$inferSelect;
 export type SiteVisit = typeof siteVisits.$inferSelect;
+export type Scope = typeof scopes.$inferSelect;
+export type ScopeVersion = typeof scopeVersions.$inferSelect;
+export type ScopeSection = typeof scopeSections.$inferSelect;
+export type ScopeItem = typeof scopeItems.$inferSelect;
