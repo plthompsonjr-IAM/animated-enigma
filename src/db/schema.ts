@@ -177,6 +177,16 @@ export const unitOfMeasureEnum = pgEnum('unit_of_measure', [
 /** Quality tier for material catalog items (Task 15). */
 export const materialTierEnum = pgEnum('material_tier', ['economic', 'standard', 'premium']);
 
+/** Estimate line categories (Task 16). */
+export const lineItemTypeEnum = pgEnum('line_item_type', [
+  'labor',
+  'material',
+  'equipment',
+  'subcontractor',
+  'allowance',
+  'other',
+]);
+
 /**
  * Clients — the customer record (Tasks 8–9): an individual or company with
  * contact details, billing address, tags, and one or more properties.
@@ -654,6 +664,96 @@ export const catalogPriceHistory = pgTable(
   (table) => [index('catalog_price_history_item_idx').on(table.catalogItemId, table.effectiveDate)],
 );
 
+/**
+ * Estimating (Task 16) — versioned per project. Each estimate_versions row is
+ * an independent, named estimate (e.g. "Good"/"Better"/"Best") moving through
+ * the shared draft→approved→locked lifecycle. Roll-up totals are computed by
+ * the EstimateService (estimate-core.ts) and stored here for reporting.
+ * Costs/margins are visible only to cost-cleared roles in the UI.
+ */
+export const estimateVersions = pgTable(
+  'estimate_versions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    scopeVersionId: uuid('scope_version_id').references(() => scopeVersions.id),
+    versionNumber: integer('version_number').notNull(),
+    name: text('name'),
+    status: versionStatusEnum('status').notNull().default('draft'),
+    aiGenerated: boolean('ai_generated').notNull().default(false),
+    aiGeneratedDocumentId: uuid('ai_generated_document_id'),
+    // Roll-up totals (denormalized; recomputed on every line change).
+    materialSubtotal: numeric('material_subtotal', { precision: 14, scale: 2 }).default('0'),
+    laborSubtotal: numeric('labor_subtotal', { precision: 14, scale: 2 }).default('0'),
+    equipmentSubtotal: numeric('equipment_subtotal', { precision: 14, scale: 2 }).default('0'),
+    subcontractorSubtotal: numeric('subcontractor_subtotal', { precision: 14, scale: 2 }).default(
+      '0',
+    ),
+    directCost: numeric('direct_cost', { precision: 14, scale: 2 }).default('0'),
+    overheadAmount: numeric('overhead_amount', { precision: 14, scale: 2 }).default('0'),
+    profitAmount: numeric('profit_amount', { precision: 14, scale: 2 }).default('0'),
+    taxAmount: numeric('tax_amount', { precision: 14, scale: 2 }).default('0'),
+    finalPrice: numeric('final_price', { precision: 14, scale: 2 }).default('0'),
+    grossMarginPct: numeric('gross_margin_pct', { precision: 6, scale: 4 }),
+    markupPct: numeric('markup_pct', { precision: 6, scale: 4 }),
+    // Rates (fractions): overhead/profit applied to cost, tax on taxable price.
+    overheadPct: numeric('overhead_pct', { precision: 6, scale: 4 }).default('0'),
+    profitPct: numeric('profit_pct', { precision: 6, scale: 4 }).default('0'),
+    taxRate: numeric('tax_rate', { precision: 6, scale: 4 }).default('0'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    approvedBy: uuid('approved_by').references(() => users.id),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('estimate_versions_number_idx').on(table.projectId, table.versionNumber),
+    index('estimate_versions_project_idx').on(table.projectId),
+  ],
+);
+
+/**
+ * Estimate line items (Task 16). Per-unit cost is carried on the line
+ * (`unit_cost`) — snapshotted from a catalog item or entered directly — and
+ * categorized by `line_type` for the subtotal roll-up. The design's per-type
+ * subtype detail tables (labor_items, material_items, …) are a later
+ * normalization refinement layered on top of this line model.
+ */
+export const estimateLineItems = pgTable(
+  'estimate_line_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    estimateVersionId: uuid('estimate_version_id')
+      .notNull()
+      .references(() => estimateVersions.id, { onDelete: 'cascade' }),
+    catalogItemId: uuid('catalog_item_id').references(() => costCatalogItems.id),
+    category: text('category'),
+    description: text('description').notNull(),
+    lineType: lineItemTypeEnum('line_type').notNull().default('material'),
+    quantity: numeric('quantity', { precision: 12, scale: 4 }).notNull().default('1'),
+    unit: unitOfMeasureEnum('unit').notNull().default('each'),
+    unitCost: numeric('unit_cost', { precision: 12, scale: 4 }).notNull().default('0'),
+    wasteFactorPct: numeric('waste_factor_pct', { precision: 6, scale: 4 }).default('0'),
+    taxable: boolean('taxable').notNull().default(true),
+    lineCost: numeric('line_cost', { precision: 14, scale: 2 }).default('0'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    aiGenerated: boolean('ai_generated').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('estimate_line_items_version_idx').on(table.estimateVersionId, table.sortOrder),
+  ],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -676,3 +776,5 @@ export type ScopeItem = typeof scopeItems.$inferSelect;
 export type ScopeTemplate = typeof scopeTemplates.$inferSelect;
 export type CostCatalogItem = typeof costCatalogItems.$inferSelect;
 export type CatalogPriceHistory = typeof catalogPriceHistory.$inferSelect;
+export type EstimateVersion = typeof estimateVersions.$inferSelect;
+export type EstimateLineItem = typeof estimateLineItems.$inferSelect;

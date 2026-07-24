@@ -595,5 +595,56 @@ begin
   end;
 end $$;
 
+-- ═══════════════════ Estimate isolation (Task 16) ══════════════════════════
+-- Seed an estimate version + line in each org as the service role.
+reset role;
+insert into estimate_versions (id, organization_id, project_id, version_number, status) values
+  ('00180aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 1, 'draft'),
+  ('00180bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 1, 'draft');
+insert into estimate_line_items (organization_id, estimate_version_id, description, line_type, quantity, unit_cost) values
+  ('0000000a-0000-4000-8000-000000000001', '00180aaa-0000-4000-8000-000000000001', 'A drywall', 'material', 100, 2),
+  ('0000000b-0000-4000-8000-000000000002', '00180bbb-0000-4000-8000-000000000002', 'B tile', 'material', 50, 9);
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Alice sees only Org A's estimate + line.
+  select count(*) into n from estimate_versions;
+  if n <> 1 then raise exception 'FAIL: expected 1 estimate version, saw %', n; end if;
+  select count(*) into n from estimate_line_items;
+  if n <> 1 then raise exception 'FAIL: expected 1 estimate line, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (estimates)';
+
+  -- Cross-org line insert (onto Org B's estimate) is blocked.
+  begin
+    insert into estimate_line_items (organization_id, estimate_version_id, description, line_type, quantity, unit_cost)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '00180bbb-0000-4000-8000-000000000002', 'evil', 'material', 1, 1);
+    raise exception 'FAIL: cross-org estimate line insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org estimate line insert blocked';
+  end;
+
+  -- Cross-org UPDATE (locking Org B's estimate) affects zero rows.
+  update estimate_versions set status = 'locked'
+    where id = '00180bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org estimate UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (estimates)';
+
+  -- Same-org line insert succeeds.
+  insert into estimate_line_items (organization_id, estimate_version_id, description, line_type, quantity, unit_cost)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00180aaa-0000-4000-8000-000000000001', 'A paint', 'labor', 8, 45);
+  raise notice 'PASS: same-org estimate line insert allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

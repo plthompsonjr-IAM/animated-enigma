@@ -127,6 +127,20 @@
       "when": 1784872121091,
       "tag": "0017_cost_catalog_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1784905087908,
+      "tag": "0018_equal_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1784905100840,
+      "tag": "0019_estimates_rls",
+      "breakpoints": true
     }
   ]
 }

@@ -68,7 +68,7 @@ const WORKSPACE_SECTIONS: {
   path?: string;
 }[] = [
   { label: 'Scope of work', icon: FileText, path: 'scope' },
-  { label: 'Estimate', icon: Calculator, note: 'Task 16' },
+  { label: 'Estimate', icon: Calculator, path: 'estimate' },
   { label: 'Schedule & tasks', icon: CalendarRange, note: 'Task 22' },
   { label: 'Daily logs', icon: ListChecks, note: 'Task 24' },
   { label: 'Documents & photos', icon: FolderOpen, note: 'Task 26' },
