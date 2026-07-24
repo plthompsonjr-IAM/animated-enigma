@@ -926,3 +926,58 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 11 — Task 14: scope templates ═══
+-- (mirrors drizzle/0014_melted_mimic.sql + 0015_scope_templates_rls.sql)
+
+CREATE TABLE IF NOT EXISTS "scope_templates" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"organization_id" uuid,
+	"name" text NOT NULL,
+	"project_type" text,
+	"body" jsonb NOT NULL,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"created_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "scope_templates" ADD CONSTRAINT "scope_templates_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+ ALTER TABLE "scope_templates" ADD CONSTRAINT "scope_templates_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION
+ WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "scope_templates_org_idx" ON "scope_templates" USING btree ("organization_id");
+-- Task 14: updated_at trigger and RLS for scope_templates. Unlike the other
+-- tenant tables, a template may be platform-global (organization_id is null),
+-- readable by every org but writable by none through the app. Org-scoped rows
+-- follow the usual tenant boundary.
+
+create trigger scope_templates_set_updated_at before update on scope_templates
+  for each row execute function set_updated_at();
+
+alter table scope_templates enable row level security;
+alter table scope_templates force row level security;
+
+-- Read: your own org's templates, plus global (null-org) templates.
+create policy scope_templates_read on scope_templates for select
+  using (
+    organization_id is null
+    or (organization_id = current_org() and is_member_of(organization_id))
+  );
+
+-- Write: only your own org's templates (never global, never another org).
+create policy scope_templates_insert on scope_templates for insert
+  with check (organization_id = current_org() and is_member_of(organization_id));
+create policy scope_templates_update on scope_templates for update
+  using (organization_id = current_org() and is_member_of(organization_id))
+  with check (organization_id = current_org() and is_member_of(organization_id));
+create policy scope_templates_delete on scope_templates for delete
+  using (organization_id = current_org() and is_member_of(organization_id));

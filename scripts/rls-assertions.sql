@@ -474,5 +474,63 @@ begin
   raise notice 'PASS: same-org scope item insert allowed';
 end $$;
 
+-- ═══════════════════ Scope template isolation (Task 14) ═════════════════════
+-- Seed one global template (null org), one for Org A, one for Org B.
+reset role;
+insert into scope_templates (id, organization_id, name, body) values
+  ('00140000-0000-4000-8000-000000000000', null,
+   'Global bathroom', '{"sections":[]}'),
+  ('00140aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   'Org A kitchen', '{"sections":[]}'),
+  ('00140bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   'Org B deck', '{"sections":[]}');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Alice sees the global template + her org's, but not Org B's.
+  select count(*) into n from scope_templates;
+  if n <> 2 then raise exception 'FAIL: expected global + Org A template (2), saw %', n; end if;
+  raise notice 'PASS: scope_templates read = own org + global (isolation)';
+
+  -- Cannot create a global template (null org) or one for another org.
+  begin
+    insert into scope_templates (organization_id, name, body)
+      values (null, 'sneaky global', '{"sections":[]}');
+    raise exception 'FAIL: global template insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cannot create a global template';
+  end;
+
+  begin
+    insert into scope_templates (organization_id, name, body)
+      values ('0000000b-0000-4000-8000-000000000002', 'evil', '{"sections":[]}');
+    raise exception 'FAIL: cross-org template insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cannot create a template for another org';
+  end;
+
+  -- Cannot modify or delete the global template.
+  update scope_templates set name = 'hacked'
+    where id = '00140000-0000-4000-8000-000000000000';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: global template UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cannot modify a global template';
+
+  -- Same-org template insert + update succeed.
+  insert into scope_templates (organization_id, name, body)
+    values ('0000000a-0000-4000-8000-000000000001', 'Org A bath', '{"sections":[]}');
+  update scope_templates set is_active = false
+    where id = '00140aaa-0000-4000-8000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL: own-org template UPDATE affected % rows', n; end if;
+  raise notice 'PASS: own-org scope template writes allowed';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

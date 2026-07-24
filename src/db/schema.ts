@@ -556,6 +556,30 @@ export const scopeItems = pgTable(
   (table) => [index('scope_items_section_idx').on(table.scopeSectionId, table.sortOrder)],
 );
 
+/**
+ * Scope templates (Task 14) — reusable scopes for common PTTR jobs. A null
+ * organization_id marks a platform-global template visible to every org;
+ * org-scoped rows are private to that org. `body` holds the section/item
+ * outline as jsonb: { sections: [{ sectionType, title, items: [...] }] }.
+ */
+export const scopeTemplates = pgTable(
+  'scope_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id').references(() => organizations.id, {
+      onDelete: 'cascade',
+    }),
+    name: text('name').notNull(),
+    projectType: text('project_type'),
+    body: jsonb('body').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('scope_templates_org_idx').on(table.organizationId)],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -575,3 +599,4 @@ export type Scope = typeof scopes.$inferSelect;
 export type ScopeVersion = typeof scopeVersions.$inferSelect;
 export type ScopeSection = typeof scopeSections.$inferSelect;
 export type ScopeItem = typeof scopeItems.$inferSelect;
+export type ScopeTemplate = typeof scopeTemplates.$inferSelect;
