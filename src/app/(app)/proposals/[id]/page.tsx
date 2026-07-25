@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Printer } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { getProposal, getProposalEvents } from '@/lib/proposals/queries';
@@ -127,9 +127,22 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
       </Card>
 
       <div>
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Client preview
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Client preview
+          </h2>
+          {token ? (
+            <a
+              href={`/proposal/${token}/print`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              <Printer className="h-4 w-4" />
+              Download PDF
+            </a>
+          ) : null}
+        </div>
         {snapshot ? (
           <ProposalDocument snapshot={snapshot} />
         ) : (

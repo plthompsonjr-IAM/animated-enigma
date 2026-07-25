@@ -1,4 +1,4 @@
-import { CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, Printer } from 'lucide-react';
 import { publicEnv } from '@/lib/env';
 import { getProposalByToken } from '@/lib/proposals/queries';
 import { recordProposalView } from '@/lib/proposals/actions';
@@ -54,6 +54,16 @@ export default async function PublicProposalPage({
         ) : (
           <StatusBanner status={proposal.displayStatus} orgName={orgName} />
         )}
+
+        <div className="text-center">
+          <a
+            href={`/proposal/${token}/print`}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+          >
+            <Printer className="h-4 w-4" />
+            Download PDF
+          </a>
+        </div>
 
         <p className="text-center text-xs text-muted-foreground">
           Sent by {orgName}. Questions? Reply to the message that shared this link.
