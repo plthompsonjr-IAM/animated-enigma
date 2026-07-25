@@ -10,8 +10,21 @@ import { SubmitButton, FormNotice } from '@/components/forms/form-bits';
 
 const initial: FormState = {};
 
-/** Client accept/decline. Each submit button carries the decision via name/value. */
-export function RespondForm({ token, orgName }: { token: string; orgName: string }) {
+/**
+ * Client accept/decline with e-signature capture (Tasks 17 & 19). Each submit
+ * button carries the decision via name/value. Accepting requires the typed name
+ * plus explicit consent to sign electronically; the disclosure shown here is the
+ * text recorded on the signature.
+ */
+export function RespondForm({
+  token,
+  orgName,
+  disclosure,
+}: {
+  token: string;
+  orgName: string;
+  disclosure: string;
+}) {
   const [state, formAction] = useFormState(respondToProposal, initial);
 
   if (state.message) {
@@ -46,14 +59,46 @@ export function RespondForm({ token, orgName }: { token: string; orgName: string
 
       <div>
         <Label htmlFor="signerName" className="mb-1.5 block">
-          Your name
+          Your full name <span className="text-muted-foreground">(this is your signature)</span>
         </Label>
-        <Input id="signerName" name="signerName" placeholder="First and last name" required />
+        <Input
+          id="signerName"
+          name="signerName"
+          placeholder="First and last name"
+          autoComplete="name"
+          required
+        />
       </div>
 
-      <SubmitButton className="w-full" pendingLabel="Submitting…" name="decision" value="accept">
+      <div>
+        <Label htmlFor="signerEmail" className="mb-1.5 block">
+          Email <span className="text-muted-foreground">(optional — for your records)</span>
+        </Label>
+        <Input
+          id="signerEmail"
+          name="signerEmail"
+          type="email"
+          placeholder="you@example.com"
+          autoComplete="email"
+        />
+      </div>
+
+      <div className="rounded-md border bg-secondary/40 p-3">
+        <label htmlFor="consent" className="flex cursor-pointer items-start gap-2.5">
+          <input
+            id="consent"
+            name="consent"
+            type="checkbox"
+            value="on"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+          />
+          <span className="text-xs leading-relaxed text-muted-foreground">{disclosure}</span>
+        </label>
+      </div>
+
+      <SubmitButton className="w-full" pendingLabel="Signing…" name="decision" value="accept">
         <ThumbsUp className="h-4 w-4" />
-        Accept proposal
+        Accept &amp; sign
       </SubmitButton>
 
       <SubmitButton
@@ -68,7 +113,7 @@ export function RespondForm({ token, orgName }: { token: string; orgName: string
       </SubmitButton>
 
       <p className="text-center text-[11px] text-muted-foreground">
-        By accepting you agree to move forward with the scope and price above.
+        Accepting confirms the scope and price above and records your electronic signature.
       </p>
     </form>
   );

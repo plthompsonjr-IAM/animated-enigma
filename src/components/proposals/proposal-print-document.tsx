@@ -1,6 +1,7 @@
 import type { ProposalSnapshot } from '@/lib/proposals/proposal-core';
 import { formatMoney } from '@/lib/proposals/proposal-core';
 import { SECTION_TYPE_LABELS, isSectionType } from '@/lib/scopes/scopes-core';
+import { formatSignedAt } from '@/lib/signatures/signature-core';
 
 /**
  * Print-optimized, client-safe proposal document (Task 18). This is the source
@@ -16,9 +17,12 @@ import { SECTION_TYPE_LABELS, isSectionType } from '@/lib/scopes/scopes-core';
 export function ProposalPrintDocument({
   snapshot,
   proposalNumber,
+  signature,
 }: {
   snapshot: ProposalSnapshot;
   proposalNumber: string;
+  /** Present once the client has e-signed (Task 19) — printed as the record. */
+  signature?: SignatureBlock | null;
 }) {
   const { org, client, project, scope, pricing } = snapshot;
   return (
@@ -84,6 +88,18 @@ export function ProposalPrintDocument({
         </p>
       ) : null}
 
+      {signature ? (
+        <section className="ptpp-signature">
+          <h2 className="ptpp-section-title">Accepted &amp; signed</h2>
+          <div className="ptpp-sig-name">{signature.signerName}</div>
+          <div className="ptpp-sig-meta">
+            Electronically signed {formatSignedAt(signature.signedAt)}
+            {signature.signerEmail ? ` · ${signature.signerEmail}` : ''}
+            {signature.ipAddress ? ` · IP ${signature.ipAddress}` : ''}
+          </div>
+        </section>
+      ) : null}
+
       {snapshot.preparedBy ? (
         <footer className="ptpp-footer">
           Prepared by {snapshot.preparedBy} ·{' '}
@@ -92,6 +108,13 @@ export function ProposalPrintDocument({
       ) : null}
     </div>
   );
+}
+
+export interface SignatureBlock {
+  signerName: string;
+  signerEmail: string | null;
+  signedAt: string | Date;
+  ipAddress: string | null;
 }
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -143,6 +166,9 @@ const PRINT_CSS = `
 .ptpp-total-value { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .ptpp-valid { font-size: 12px; color: hsl(20 6% 45%); margin: 6px 0 0; }
 .ptpp-footer { border-top: 1px solid hsl(20 6% 88%); margin-top: 24px; padding-top: 12px; font-size: 12px; color: hsl(20 6% 45%); }
+.ptpp-signature { margin-top: 24px; border: 1px solid hsl(20 6% 88%); border-radius: 8px; padding: 16px; break-inside: avoid; }
+.ptpp-sig-name { font-size: 22px; font-family: 'Segoe Script', 'Snell Roundhand', 'Brush Script MT', cursive; border-bottom: 1px solid hsl(20 6% 60%); padding-bottom: 6px; margin-bottom: 6px; }
+.ptpp-sig-meta { font-size: 11px; color: hsl(20 6% 45%); }
 
 @page { margin: 16mm; }
 @media print {

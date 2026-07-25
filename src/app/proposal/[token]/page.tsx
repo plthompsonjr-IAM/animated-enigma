@@ -3,6 +3,7 @@ import { publicEnv } from '@/lib/env';
 import { getProposalByToken } from '@/lib/proposals/queries';
 import { recordProposalView } from '@/lib/proposals/actions';
 import { canRespond, type ProposalSnapshot } from '@/lib/proposals/proposal-core';
+import { resolveDisclosure } from '@/lib/signatures/signature-core';
 import { ProposalDocument } from '@/components/proposals/proposal-document';
 import { RespondForm } from './respond-form';
 
@@ -50,7 +51,11 @@ export default async function PublicProposalPage({
         <ProposalDocument snapshot={snapshot} />
 
         {respondable ? (
-          <RespondForm token={token} orgName={orgName} />
+          <RespondForm
+            token={token}
+            orgName={orgName}
+            disclosure={resolveDisclosure(proposal.disclosure)}
+          />
         ) : (
           <StatusBanner status={proposal.displayStatus} orgName={orgName} />
         )}

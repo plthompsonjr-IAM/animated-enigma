@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
@@ -18,6 +19,13 @@ import {
   isExpired,
   type ProposalStatus,
 } from './proposal-core';
+import {
+  buildSignatureRecord,
+  clientIpFromForwardedFor,
+  isValidSignerName,
+  normalizeSignerName,
+  truncateUserAgent,
+} from '@/lib/signatures/signature-core';
 import { scopeSectionsForSnapshot } from './queries';
 import { createProposalSchema, markSentSchema, respondSchema } from './schema';
 
@@ -328,11 +336,14 @@ export async function recordProposalView(token: string): Promise<void> {
     .where(eq(V.secureLinkTokenHash, hashProposalToken(token)));
   if (!row || row.currentVersionId !== row.versionId) return;
 
+  const headerList = await headers();
   await db.transaction(async (tx) => {
     await tx.insert(schema.proposalEvents).values({
       organizationId: row.orgId,
       proposalVersionId: row.versionId,
       eventType: 'viewed',
+      ipAddress: clientIpFromForwardedFor(headerList.get('x-forwarded-for')),
+      userAgent: truncateUserAgent(headerList.get('user-agent')),
     });
     if (row.status === 'sent') {
       await tx
@@ -348,12 +359,22 @@ export async function respondToProposal(_prev: FormState, formData: FormData): P
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? 'Please check the form.' };
   }
-  const { token, decision, signerName } = parsed.data;
+  const { token, decision, signerName, signerEmail } = parsed.data;
+  if (!isValidSignerName(signerName)) {
+    return { error: 'Please enter your full name as your signature.' };
+  }
+
+  // Audit metadata for the signature record — captured server-side so the
+  // client cannot forge it.
+  const headerList = await headers();
+  const ipAddress = clientIpFromForwardedFor(headerList.get('x-forwarded-for'));
+  const userAgent = headerList.get('user-agent');
 
   try {
     const db = getDb();
     const V = schema.proposalVersions;
     const P = schema.proposals;
+    const O = schema.organizations;
     const [row] = await db
       .select({
         orgId: V.organizationId,
@@ -362,9 +383,11 @@ export async function respondToProposal(_prev: FormState, formData: FormData): P
         status: P.status,
         expiresAt: P.expiresAt,
         currentVersionId: P.currentVersionId,
+        disclosure: O.signatureDisclosure,
       })
       .from(V)
       .innerJoin(P, eq(P.id, V.proposalId))
+      .innerJoin(O, eq(O.id, V.organizationId))
       .where(eq(V.secureLinkTokenHash, hashProposalToken(token)));
     if (!row || row.currentVersionId !== row.versionId) {
       return { error: 'This proposal link is no longer valid.' };
@@ -376,12 +399,36 @@ export async function respondToProposal(_prev: FormState, formData: FormData): P
 
     const newStatus = decision === 'accept' ? 'accepted' : 'declined';
     await db.transaction(async (tx) => {
+      // Accepting is a signing act: capture an immutable signature record with
+      // the signer, timestamp, network/device metadata, and the exact
+      // disclosure text that was shown. Declining is only an audit event.
+      let signatureId: string | null = null;
+      if (decision === 'accept') {
+        const record = buildSignatureRecord({
+          organizationId: row.orgId,
+          signableType: 'proposal_version',
+          signableId: row.versionId,
+          signerName,
+          signerEmail,
+          disclosure: row.disclosure,
+          ipAddress,
+          userAgent,
+        });
+        const [signature] = await tx
+          .insert(schema.signatures)
+          .values(record)
+          .returning({ id: schema.signatures.id });
+        signatureId = signature?.id ?? null;
+      }
+
       await tx.insert(schema.proposalEvents).values({
         organizationId: row.orgId,
         proposalVersionId: row.versionId,
         eventType: newStatus,
-        actorEmail: null,
-        metadata: { signerName },
+        actorEmail: signerEmail && signerEmail.length > 0 ? signerEmail : null,
+        ipAddress,
+        userAgent: truncateUserAgent(userAgent),
+        metadata: { signerName: normalizeSignerName(signerName), signatureId },
       });
       await tx
         .update(schema.proposals)

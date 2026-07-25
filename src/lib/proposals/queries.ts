@@ -116,6 +116,8 @@ export interface PublicProposal {
   displayStatus: ProposalStatus;
   snapshot: ProposalSnapshot | null;
   expiresAt: Date | null;
+  /** The org's configured e-signature disclosure (Task 19); null → default. */
+  disclosure: string | null;
 }
 
 /**
@@ -127,6 +129,7 @@ export async function getProposalByToken(token: string): Promise<PublicProposal 
   const db = getDb();
   const V = schema.proposalVersions;
   const P = schema.proposals;
+  const O = schema.organizations;
   const [row] = await db
     .select({
       organizationId: V.organizationId,
@@ -137,9 +140,11 @@ export async function getProposalByToken(token: string): Promise<PublicProposal 
       snapshot: V.contentSnapshot,
       expiresAt: P.expiresAt,
       currentVersionId: P.currentVersionId,
+      disclosure: O.signatureDisclosure,
     })
     .from(V)
     .innerJoin(P, eq(P.id, V.proposalId))
+    .innerJoin(O, eq(O.id, V.organizationId))
     .where(eq(V.secureLinkTokenHash, hashProposalToken(token)));
   if (!row) return null;
   // Only the current version's link is live.
@@ -157,7 +162,30 @@ export async function getProposalByToken(token: string): Promise<PublicProposal 
     displayStatus,
     snapshot: row.snapshot as ProposalSnapshot | null,
     expiresAt: row.expiresAt,
+    disclosure: row.disclosure,
   };
+}
+
+/**
+ * The e-signature captured when a client accepted this proposal version (Task
+ * 19). Null until they sign. Newest first in the unlikely event of duplicates —
+ * signatures are append-only, so a re-sign adds a row rather than replacing one.
+ */
+export async function signatureForVersion(organizationId: string, versionId: string) {
+  const db = getDb();
+  const S = schema.signatures;
+  const [row] = await db
+    .select()
+    .from(S)
+    .where(
+      and(
+        eq(S.organizationId, organizationId),
+        eq(S.signableType, 'proposal_version'),
+        eq(S.signableId, versionId),
+      ),
+    )
+    .orderBy(desc(S.signedAt));
+  return row ?? null;
 }
 
 /** Scope sections (client-safe) for a scope version — feeds the snapshot. */

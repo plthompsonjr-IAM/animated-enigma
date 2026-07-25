@@ -1356,3 +1356,54 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 15 — Task 19: e-signatures ═══
+
+alter table organizations add column if not exists signature_disclosure text;
+
+create table if not exists signatures (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  signable_type text not null,
+  signable_id uuid not null,
+  signer_name text not null,
+  signer_email text,
+  signature_image_url text,
+  signed_at timestamptz not null default now(),
+  ip_address text,
+  user_agent text,
+  disclosure_text text,
+  locked_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists signatures_signable_idx on signatures (signable_type, signable_id);
+create index if not exists signatures_org_idx on signatures (organization_id, signed_at);
+
+-- Signatures are legal evidence: write-once for every role, including the
+-- app's postgres role (which has BYPASSRLS).
+create or replace function signatures_append_only() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  raise exception 'signatures are append-only: % is not permitted', tg_op
+    using errcode = 'restrict_violation';
+end;
+$$;
+
+drop trigger if exists signatures_no_update on signatures;
+create trigger signatures_no_update before update on signatures
+  for each row execute function signatures_append_only();
+
+drop trigger if exists signatures_no_delete on signatures;
+create trigger signatures_no_delete before delete on signatures
+  for each row execute function signatures_append_only();
+
+alter table signatures enable row level security;
+alter table signatures force row level security;
+
+drop policy if exists signatures_tenant on signatures;
+create policy signatures_tenant on signatures
+  using (organization_id = current_org() and is_member_of(organization_id))
+  with check (organization_id = current_org() and is_member_of(organization_id));

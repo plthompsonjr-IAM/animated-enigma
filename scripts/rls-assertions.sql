@@ -704,4 +704,74 @@ begin
 end $$;
 
 reset role;
+
+-- ═══════════════════ Signature isolation + immutability (Task 19) ═══════════
+-- Seed one signature per org against that org's proposal version.
+reset role;
+insert into signatures
+  (id, organization_id, signable_type, signable_id, signer_name, disclosure_text) values
+  ('00220aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   'proposal_version', '00210aaa-0000-4000-8000-000000000001', 'Alice Client', 'disclosure A'),
+  ('00220bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   'proposal_version', '00210bbb-0000-4000-8000-000000000002', 'Bob Client', 'disclosure B');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from signatures;
+  if n <> 1 then raise exception 'FAIL: expected 1 signature, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (signatures)';
+
+  -- Forging a signature into another org is blocked by RLS.
+  begin
+    insert into signatures (organization_id, signable_type, signable_id, signer_name)
+      values ('0000000b-0000-4000-8000-000000000002', 'proposal_version',
+              '00210bbb-0000-4000-8000-000000000002', 'Mallory');
+    raise exception 'FAIL: cross-org signature insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org signature insert blocked';
+  end;
+
+  -- Signatures are append-only: rewriting the signer is rejected outright.
+  begin
+    update signatures set signer_name = 'Tampered'
+      where id = '00220aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: signature UPDATE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: signature UPDATE blocked (append-only)';
+  end;
+
+  begin
+    delete from signatures where id = '00220aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: signature DELETE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: signature DELETE blocked (append-only)';
+  end;
+
+  -- Same-org signature insert succeeds.
+  insert into signatures (organization_id, signable_type, signable_id, signer_name)
+    values ('0000000a-0000-4000-8000-000000000001', 'proposal_version',
+            '00210aaa-0000-4000-8000-000000000001', 'Alice Client');
+  raise notice 'PASS: same-org signature insert allowed';
+end $$;
+
+-- Append-only holds even for the privileged service role (BYPASSRLS).
+reset role;
+do $$
+begin
+  begin
+    update signatures set signer_name = 'Tampered'
+      where id = '00220bbb-0000-4000-8000-000000000002';
+    raise exception 'FAIL: service-role signature UPDATE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: signature UPDATE blocked even for service role';
+  end;
+end $$;
+
+reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

@@ -1,5 +1,5 @@
 import { publicEnv } from '@/lib/env';
-import { getProposalByToken } from '@/lib/proposals/queries';
+import { getProposalByToken, signatureForVersion } from '@/lib/proposals/queries';
 import type { ProposalSnapshot } from '@/lib/proposals/proposal-core';
 import { ProposalPrintDocument } from '@/components/proposals/proposal-print-document';
 import { PrintToolbar } from '@/components/proposals/print-toolbar';
@@ -33,11 +33,26 @@ export default async function ProposalPrintPage({
   }
 
   const snapshot = proposal.snapshot as ProposalSnapshot;
+  // Once signed, the saved PDF carries the signature block (Task 19).
+  const signature = await signatureForVersion(proposal.organizationId, proposal.versionId);
 
   return (
     <div className="min-h-dvh bg-white">
       <PrintToolbar backHref={`/proposal/${token}`} title={proposal.proposalNumber} />
-      <ProposalPrintDocument snapshot={snapshot} proposalNumber={proposal.proposalNumber} />
+      <ProposalPrintDocument
+        snapshot={snapshot}
+        proposalNumber={proposal.proposalNumber}
+        signature={
+          signature
+            ? {
+                signerName: signature.signerName,
+                signerEmail: signature.signerEmail,
+                signedAt: signature.signedAt,
+                ipAddress: signature.ipAddress,
+              }
+            : null
+        }
+      />
     </div>
   );
 }

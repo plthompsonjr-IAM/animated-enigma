@@ -155,6 +155,20 @@
       "when": 1784919888867,
       "tag": "0021_proposals_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784992780305,
+      "tag": "0022_redundant_maginty",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784992793909,
+      "tag": "0023_signatures_rls",
+      "breakpoints": true
     }
   ]
 }

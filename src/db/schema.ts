@@ -50,6 +50,8 @@ export const organizations = pgTable('organizations', {
   logoUrl: text('logo_url'),
   tagline: text('tagline').default('Your Home, Our Mission.'),
   timezone: text('timezone').notNull().default('America/New_York'),
+  /** Jurisdiction disclosure shown at e-signing (Task 19); null → built-in default. */
+  signatureDisclosure: text('signature_disclosure'),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -843,6 +845,39 @@ export const proposalEvents = pgTable(
   (table) => [index('proposal_events_version_idx').on(table.proposalVersionId, table.occurredAt)],
 );
 
+/**
+ * E-signature records (Task 19). Polymorphic by design — one table serves
+ * proposals now and change orders/contracts later via signableType/signableId.
+ * Rows are append-only (a DB trigger blocks UPDATE/DELETE): a signature is
+ * evidence, so corrections are new records, never edits. The disclosure text
+ * shown to the signer is copied onto the row so we can always prove what was
+ * agreed to, even if the org later changes its disclosure.
+ */
+export const signatures = pgTable(
+  'signatures',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    signableType: text('signable_type').notNull(),
+    signableId: uuid('signable_id').notNull(),
+    signerName: text('signer_name').notNull(),
+    signerEmail: text('signer_email'),
+    signatureImageUrl: text('signature_image_url'),
+    signedAt: timestamp('signed_at', { withTimezone: true }).notNull().defaultNow(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    disclosureText: text('disclosure_text'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('signatures_signable_idx').on(table.signableType, table.signableId),
+    index('signatures_org_idx').on(table.organizationId, table.signedAt),
+  ],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -871,3 +906,5 @@ export type EstimateLineItem = typeof estimateLineItems.$inferSelect;
 export type Proposal = typeof proposals.$inferSelect;
 export type ProposalVersion = typeof proposalVersions.$inferSelect;
 export type ProposalEvent = typeof proposalEvents.$inferSelect;
+export type Signature = typeof signatures.$inferSelect;
+export type NewSignature = typeof signatures.$inferInsert;

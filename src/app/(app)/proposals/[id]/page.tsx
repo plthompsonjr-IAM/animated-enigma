@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { ArrowLeft, Printer } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
-import { getProposal, getProposalEvents } from '@/lib/proposals/queries';
+import { getProposal, getProposalEvents, signatureForVersion } from '@/lib/proposals/queries';
 import {
   PROPOSAL_EVENT_LABELS,
   isExpired,
@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProposalStatusBadge } from '@/components/proposals/proposal-status-badge';
 import { ProposalDocument } from '@/components/proposals/proposal-document';
+import { ApprovalRecord } from '@/components/proposals/approval-record';
 import { CopyProposalLink, MarkSentForm, RegenerateButton } from './proposal-actions';
 
 export const metadata = { title: 'Proposal' };
@@ -42,7 +43,10 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
       ? 'expired'
       : status;
 
-  const events = await getProposalEvents(orgId, version.id);
+  const [events, signature] = await Promise.all([
+    getProposalEvents(orgId, version.id),
+    signatureForVersion(orgId, version.id),
+  ]);
   // The raw share token is stashed on the version's creation/new-version event.
   const tokenEvent = events.find((e) => (e.metadata as { token?: string } | null)?.token);
   const token = (tokenEvent?.metadata as { token?: string } | null)?.token ?? null;
@@ -99,6 +103,8 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
           </CardContent>
         </Card>
       ) : null}
+
+      {signature ? <ApprovalRecord signature={signature} /> : null}
 
       <Card>
         <CardHeader>
