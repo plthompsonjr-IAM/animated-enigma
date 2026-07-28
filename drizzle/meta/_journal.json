@@ -169,6 +169,20 @@
       "when": 1784992793909,
       "tag": "0023_signatures_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785225468932,
+      "tag": "0024_flimsy_switch",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785225475695,
+      "tag": "0025_contracts_rls",
+      "breakpoints": true
     }
   ]
 }

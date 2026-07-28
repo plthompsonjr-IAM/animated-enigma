@@ -774,4 +774,89 @@ begin
 end $$;
 
 reset role;
+
+-- ═══════════════════ Contract isolation + freezing (Task 20) ════════════════
+-- Seed a draft contract with a payment schedule in each org.
+reset role;
+insert into contracts (id, organization_id, project_id, contract_number, status, contract_value) values
+  ('00230aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'CON-2026-0001', 'draft', 10000.00),
+  ('00230bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'CON-2026-0001', 'draft', 20000.00);
+insert into payment_schedules (id, organization_id, contract_id, structure_type) values
+  ('00240aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '00230aaa-0000-4000-8000-000000000001', 'deposit_balance'),
+  ('00240bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '00230bbb-0000-4000-8000-000000000002', 'deposit_balance');
+insert into payment_milestones (organization_id, payment_schedule_id, name, percentage) values
+  ('0000000a-0000-4000-8000-000000000001', '00240aaa-0000-4000-8000-000000000001', 'Deposit', 75),
+  ('0000000b-0000-4000-8000-000000000002', '00240bbb-0000-4000-8000-000000000002', 'Deposit', 75);
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from contracts;
+  if n <> 1 then raise exception 'FAIL: expected 1 contract, saw %', n; end if;
+  select count(*) into n from payment_schedules;
+  if n <> 1 then raise exception 'FAIL: expected 1 payment schedule, saw %', n; end if;
+  select count(*) into n from payment_milestones;
+  if n <> 1 then raise exception 'FAIL: expected 1 payment milestone, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (contracts)';
+
+  -- Cross-org contract insert is blocked.
+  begin
+    insert into contracts (organization_id, project_id, contract_number, contract_value)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', 'CON-2026-0099', 1.00);
+    raise exception 'FAIL: cross-org contract insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org contract insert blocked';
+  end;
+
+  -- Cross-org UPDATE affects zero rows.
+  update contracts set contract_value = 1
+    where id = '00230bbb-0000-4000-8000-000000000002';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: cross-org contract UPDATE affected % rows', n; end if;
+  raise notice 'PASS: cross-org UPDATE blocked (contracts)';
+
+  -- A draft contract is still editable.
+  update contracts set contract_value = 11000
+    where id = '00230aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: draft contract value is editable';
+
+  -- Activating is allowed; afterwards the money is frozen.
+  update contracts set status = 'active'
+    where id = '00230aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: draft → active transition allowed';
+
+  begin
+    update contracts set contract_value = 999
+      where id = '00230aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: active contract value change was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: active contract value change blocked';
+  end;
+
+  -- Status may still advance on an active contract.
+  update contracts set status = 'completed'
+    where id = '00230aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: active → completed transition still allowed';
+
+  -- Payment terms follow the contract: frozen once it leaves draft.
+  begin
+    update payment_milestones set percentage = 10
+      where payment_schedule_id = '00240aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: payment milestone edit on locked contract was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: payment terms frozen once contract leaves draft';
+  end;
+end $$;
+
+reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

@@ -1407,3 +1407,147 @@ drop policy if exists signatures_tenant on signatures;
 create policy signatures_tenant on signatures
   using (organization_id = current_org() and is_member_of(organization_id))
   with check (organization_id = current_org() and is_member_of(organization_id));
+
+-- ═══ Part 16 — Task 20: contracts & payment schedules ═══
+
+do $$ begin
+  create type contract_status as enum ('draft','active','completed','cancelled');
+exception when duplicate_object then null; end $$;
+
+create table if not exists contracts (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  proposal_id uuid references proposals(id),
+  contract_number text not null,
+  status contract_status not null default 'draft',
+  contract_value numeric(14,2) not null default 0,
+  scope_summary text,
+  pdf_document_id uuid,
+  signed_signature_id uuid references signatures(id),
+  activated_at timestamptz,
+  locked_at timestamptz,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists contracts_org_number_idx on contracts (organization_id, contract_number);
+create index if not exists contracts_project_idx on contracts (project_id);
+create unique index if not exists contracts_proposal_idx on contracts (proposal_id);
+
+create table if not exists payment_schedules (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  contract_id uuid not null references contracts(id) on delete cascade,
+  structure_type text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists payment_schedules_contract_idx on payment_schedules (contract_id);
+
+create table if not exists payment_milestones (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  payment_schedule_id uuid not null references payment_schedules(id) on delete cascade,
+  name text not null,
+  sort_order integer not null default 0,
+  amount numeric(14,2),
+  percentage numeric(6,4),
+  trigger_type text,
+  due_date date,
+  invoice_id uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists payment_milestones_schedule_idx
+  on payment_milestones (payment_schedule_id, sort_order);
+
+drop trigger if exists contracts_set_updated_at on contracts;
+create trigger contracts_set_updated_at before update on contracts
+  for each row execute function set_updated_at();
+drop trigger if exists payment_schedules_set_updated_at on payment_schedules;
+create trigger payment_schedules_set_updated_at before update on payment_schedules
+  for each row execute function set_updated_at();
+drop trigger if exists payment_milestones_set_updated_at on payment_milestones;
+create trigger payment_milestones_set_updated_at before update on payment_milestones
+  for each row execute function set_updated_at();
+
+-- Financial integrity: a contract's money and linkage freeze once it is active.
+create or replace function contracts_freeze_when_active() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  if old.status <> 'draft' then
+    if new.contract_value is distinct from old.contract_value
+       or new.project_id is distinct from old.project_id
+       or new.proposal_id is distinct from old.proposal_id
+       or new.contract_number is distinct from old.contract_number
+       or new.organization_id is distinct from old.organization_id then
+      raise exception
+        'contract % is % and its terms are frozen; issue a change order instead',
+        old.contract_number, old.status
+        using errcode = 'restrict_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists contracts_freeze on contracts;
+create trigger contracts_freeze before update on contracts
+  for each row execute function contracts_freeze_when_active();
+
+create or replace function payment_terms_follow_contract() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  target_contract uuid;
+  contract_status_value text;
+begin
+  if tg_table_name = 'payment_schedules' then
+    target_contract := coalesce(new.contract_id, old.contract_id);
+  else
+    select s.contract_id into target_contract
+      from public.payment_schedules s
+      where s.id = coalesce(new.payment_schedule_id, old.payment_schedule_id);
+  end if;
+
+  select c.status::text into contract_status_value
+    from public.contracts c where c.id = target_contract;
+
+  if contract_status_value is not null and contract_status_value <> 'draft' then
+    raise exception 'payment terms are frozen once the contract is %', contract_status_value
+      using errcode = 'restrict_violation';
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists payment_schedules_frozen on payment_schedules;
+create trigger payment_schedules_frozen
+  before insert or update or delete on payment_schedules
+  for each row execute function payment_terms_follow_contract();
+
+drop trigger if exists payment_milestones_frozen on payment_milestones;
+create trigger payment_milestones_frozen
+  before insert or update or delete on payment_milestones
+  for each row execute function payment_terms_follow_contract();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['contracts','payment_schedules','payment_milestones']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

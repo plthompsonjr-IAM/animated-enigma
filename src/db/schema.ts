@@ -200,6 +200,14 @@ export const proposalStatusEnum = pgEnum('proposal_status', [
   'expired',
 ]);
 
+/** Contract lifecycle (Task 20): frozen once it leaves draft. */
+export const contractStatusEnum = pgEnum('contract_status', [
+  'draft',
+  'active',
+  'completed',
+  'cancelled',
+]);
+
 /**
  * Clients — the customer record (Tasks 8–9): an individual or company with
  * contact details, billing address, tags, and one or more properties.
@@ -846,6 +854,86 @@ export const proposalEvents = pgTable(
 );
 
 /**
+ * Contracts (Task 20) — the binding agreement created from an accepted,
+ * signed proposal. Draft contracts are editable; once activated the row is
+ * frozen (a DB trigger blocks changes to the money and linkage columns), so
+ * corrections become formal revisions rather than silent edits.
+ */
+export const contracts = pgTable(
+  'contracts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    proposalId: uuid('proposal_id').references(() => proposals.id),
+    contractNumber: text('contract_number').notNull(),
+    status: contractStatusEnum('status').notNull().default('draft'),
+    contractValue: numeric('contract_value', { precision: 14, scale: 2 }).notNull().default('0'),
+    scopeSummary: text('scope_summary'),
+    pdfDocumentId: uuid('pdf_document_id'),
+    signedSignatureId: uuid('signed_signature_id').references(() => signatures.id),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('contracts_org_number_idx').on(table.organizationId, table.contractNumber),
+    index('contracts_project_idx').on(table.projectId),
+    uniqueIndex('contracts_proposal_idx').on(table.proposalId),
+  ],
+);
+
+/** How a contract gets paid — one schedule per contract. */
+export const paymentSchedules = pgTable(
+  'payment_schedules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    contractId: uuid('contract_id')
+      .notNull()
+      .references(() => contracts.id, { onDelete: 'cascade' }),
+    structureType: text('structure_type').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex('payment_schedules_contract_idx').on(table.contractId)],
+);
+
+/** The individual payments in a schedule (deposit, draws, final). */
+export const paymentMilestones = pgTable(
+  'payment_milestones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    paymentScheduleId: uuid('payment_schedule_id')
+      .notNull()
+      .references(() => paymentSchedules.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    amount: numeric('amount', { precision: 14, scale: 2 }),
+    percentage: numeric('percentage', { precision: 6, scale: 4 }),
+    triggerType: text('trigger_type'),
+    dueDate: date('due_date'),
+    invoiceId: uuid('invoice_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('payment_milestones_schedule_idx').on(table.paymentScheduleId, table.sortOrder),
+  ],
+);
+
+/**
  * E-signature records (Task 19). Polymorphic by design — one table serves
  * proposals now and change orders/contracts later via signableType/signableId.
  * Rows are append-only (a DB trigger blocks UPDATE/DELETE): a signature is
@@ -908,3 +996,7 @@ export type ProposalVersion = typeof proposalVersions.$inferSelect;
 export type ProposalEvent = typeof proposalEvents.$inferSelect;
 export type Signature = typeof signatures.$inferSelect;
 export type NewSignature = typeof signatures.$inferInsert;
+export type Contract = typeof contracts.$inferSelect;
+export type NewContract = typeof contracts.$inferInsert;
+export type PaymentSchedule = typeof paymentSchedules.$inferSelect;
+export type PaymentMilestone = typeof paymentMilestones.$inferSelect;

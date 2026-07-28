@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { ArrowLeft, FileSignature, Printer } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { getProposal, getProposalEvents, signatureForVersion } from '@/lib/proposals/queries';
@@ -12,7 +12,9 @@ import {
   type ProposalStatus,
 } from '@/lib/proposals/proposal-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { contractForProposal } from '@/lib/contracts/queries';
+import { createContractFromProposal } from '@/lib/contracts/actions';
 import { ProposalStatusBadge } from '@/components/proposals/proposal-status-badge';
 import { ProposalDocument } from '@/components/proposals/proposal-document';
 import { ApprovalRecord } from '@/components/proposals/approval-record';
@@ -43,9 +45,16 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
       ? 'expired'
       : status;
 
-  const [events, signature] = await Promise.all([
+  const mayManageContracts = can(
+    ctx.activeOrg.roles,
+    'financials:write',
+    ctx.activeOrg.extraPermissions,
+  );
+
+  const [events, signature, contract] = await Promise.all([
     getProposalEvents(orgId, version.id),
     signatureForVersion(orgId, version.id),
+    contractForProposal(orgId, proposal.id),
   ]);
   // The raw share token is stashed on the version's creation/new-version event.
   const tokenEvent = events.find((e) => (e.metadata as { token?: string } | null)?.token);
@@ -105,6 +114,38 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
       ) : null}
 
       {signature ? <ApprovalRecord signature={signature} /> : null}
+
+      {status === 'accepted' && mayManageContracts ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Contract</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {contract ? (
+              <p className="text-sm">
+                <Link href={`/contracts/${contract.id}`} className="font-medium hover:underline">
+                  {contract.contractNumber}
+                </Link>{' '}
+                <span className="text-muted-foreground">
+                  — created from this proposal ({contract.status}).
+                </span>
+              </p>
+            ) : (
+              <form action={createContractFromProposal} className="space-y-2">
+                <input type="hidden" name="proposalId" value={proposal.id} />
+                <p className="text-sm text-muted-foreground">
+                  The client accepted and signed. Create the contract to lock in the value and set
+                  payment terms.
+                </p>
+                <Button type="submit" size="sm" className="w-auto">
+                  <FileSignature className="h-4 w-4" />
+                  Create contract
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
