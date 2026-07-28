@@ -15,6 +15,7 @@ const PROTECTED_PREFIXES = [
   '/projects',
   '/estimates',
   '/proposals',
+  '/contracts',
   '/schedule',
   '/tasks',
   '/documents',

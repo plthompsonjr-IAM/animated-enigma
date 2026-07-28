@@ -1,6 +1,9 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Lock } from 'lucide-react';
+import { eq } from 'drizzle-orm';
+import { AlertTriangle, ArrowLeft, Lock, Printer } from 'lucide-react';
+import { getDb, schema } from '@/db';
+import { resolveTerms, unresolvedBlanks } from '@/lib/contracts/terms-core';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { getContract, paymentScheduleFor } from '@/lib/contracts/queries';
@@ -44,6 +47,12 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
   const value = toNum(contract.contractValue);
   const editable = isEditable(status);
 
+  const [org] = await getDb()
+    .select({ contractTerms: schema.organizations.contractTerms })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, orgId));
+  const termsBlanks = unresolvedBlanks(resolveTerms(org?.contractTerms));
+
   const { schedule, milestones } = await paymentScheduleFor(orgId, contract.id);
   const structure: PaymentStructure =
     schedule && isPaymentStructure(schedule.structureType)
@@ -77,14 +86,40 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
             </span>
           ) : null}
         </div>
-        <p className="text-sm text-muted-foreground">
-          {row.clientName ?? 'Client'} ·{' '}
-          <Link href={`/projects/${contract.projectId}`} className="hover:underline">
-            {row.projectNumber ? `${row.projectNumber} · ` : ''}
-            {row.projectName ?? 'Project'}
-          </Link>
-        </p>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            {row.clientName ?? 'Client'} ·{' '}
+            <Link href={`/projects/${contract.projectId}`} className="hover:underline">
+              {row.projectNumber ? `${row.projectNumber} · ` : ''}
+              {row.projectName ?? 'Project'}
+            </Link>
+          </p>
+          <a
+            href={`/contracts/${contract.id}/print`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <Printer className="h-4 w-4" />
+            Print contract
+          </a>
+        </div>
       </div>
+
+      {termsBlanks.length > 0 ? (
+        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <div className="text-sm">
+            <p className="font-medium">Your contract terms still have blanks to fill in.</p>
+            <p className="mt-0.5 text-muted-foreground">
+              The printable contract uses a starter template with placeholders for{' '}
+              {termsBlanks.slice(0, 4).join(', ').toLowerCase()}
+              {termsBlanks.length > 4 ? `, and ${termsBlanks.length - 4} more` : ''}. Have your
+              terms reviewed by an attorney before sending this to a client.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>

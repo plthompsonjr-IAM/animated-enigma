@@ -1551,3 +1551,7 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 17 — Task 20b: contract terms & conditions ═══
+-- Per-org T&C text for the printable contract; null → built-in starter template.
+alter table organizations add column if not exists contract_terms text;

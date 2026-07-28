@@ -52,6 +52,8 @@ export const organizations = pgTable('organizations', {
   timezone: text('timezone').notNull().default('America/New_York'),
   /** Jurisdiction disclosure shown at e-signing (Task 19); null → built-in default. */
   signatureDisclosure: text('signature_disclosure'),
+  /** Contract terms & conditions; null → the built-in starter template. */
+  contractTerms: text('contract_terms'),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
