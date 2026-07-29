@@ -859,4 +859,83 @@ begin
 end $$;
 
 reset role;
+
+-- ═══════════════════ Change-order isolation + freezing (Task 21) ═════════════
+-- Seed a draft change order with one line in each org.
+reset role;
+insert into change_orders
+  (id, organization_id, project_id, change_order_number, status, cost_change) values
+  ('00250aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'CO-2026-0001', 'draft', 1200.00),
+  ('00250bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'CO-2026-0001', 'draft', 900.00);
+insert into change_order_items (organization_id, change_order_id, direction, description, amount) values
+  ('0000000a-0000-4000-8000-000000000001', '00250aaa-0000-4000-8000-000000000001',
+   'added', 'Replace subfloor', 1200.00),
+  ('0000000b-0000-4000-8000-000000000002', '00250bbb-0000-4000-8000-000000000002',
+   'added', 'Extra outlet', 900.00);
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*) into n from change_orders;
+  if n <> 1 then raise exception 'FAIL: expected 1 change order, saw %', n; end if;
+  select count(*) into n from change_order_items;
+  if n <> 1 then raise exception 'FAIL: expected 1 change order item, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (change orders)';
+
+  -- Cross-org insert is blocked.
+  begin
+    insert into change_orders (organization_id, project_id, change_order_number, cost_change)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', 'CO-2026-0099', 1.00);
+    raise exception 'FAIL: cross-org change order insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org change order insert blocked';
+  end;
+
+  -- A draft change order is editable, items included.
+  update change_orders set cost_change = 1500
+    where id = '00250aaa-0000-4000-8000-000000000001';
+  update change_order_items set amount = 1500
+    where change_order_id = '00250aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: draft change order and its items are editable';
+
+  -- Walk it to approved.
+  update change_orders set status = 'sent'
+    where id = '00250aaa-0000-4000-8000-000000000001';
+  update change_orders set status = 'approved'
+    where id = '00250aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: draft → sent → approved transitions allowed';
+
+  -- Approved terms are frozen.
+  begin
+    update change_orders set cost_change = 99999
+      where id = '00250aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: approved change order cost change was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: approved change order cost is frozen';
+  end;
+
+  -- Its line items are locked too.
+  begin
+    update change_order_items set amount = 5
+      where change_order_id = '00250aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: item edit on approved change order was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: approved change order items are locked';
+  end;
+
+  -- But it may still be incorporated.
+  update change_orders set status = 'incorporated'
+    where id = '00250aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: approved → incorporated still allowed';
+end $$;
+
+reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

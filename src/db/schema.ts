@@ -202,6 +202,18 @@ export const proposalStatusEnum = pgEnum('proposal_status', [
   'expired',
 ]);
 
+/** Change-order approval lifecycle (Task 21). */
+export const changeOrderStatusEnum = pgEnum('change_order_status', [
+  'draft',
+  'internal_review',
+  'sent',
+  'viewed',
+  'approved',
+  'declined',
+  'incorporated',
+  'canceled',
+]);
+
 /** Contract lifecycle (Task 20): frozen once it leaves draft. */
 export const contractStatusEnum = pgEnum('contract_status', [
   'draft',
@@ -936,6 +948,71 @@ export const paymentMilestones = pgTable(
 );
 
 /**
+ * Change orders (Task 21) — the formal way to revise an active contract. A
+ * change order never rewrites the signed contract value; the revised contract
+ * sum is derived as original + approved change orders, so the agreement the
+ * client signed stays intact and the arithmetic is always reconstructible.
+ */
+export const changeOrders = pgTable(
+  'change_orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    contractId: uuid('contract_id').references(() => contracts.id),
+    changeOrderNumber: text('change_order_number').notNull(),
+    requestedBy: text('requested_by'),
+    reason: text('reason'),
+    /** Net cost impact; may be negative (a credit). Derived from the items. */
+    costChange: numeric('cost_change', { precision: 14, scale: 2 }).notNull().default('0'),
+    scheduleChangeDays: integer('schedule_change_days').default(0),
+    /** Never shown to the client. */
+    internalNotes: text('internal_notes'),
+    /** The client-facing explanation printed on the change order. */
+    clientExplanation: text('client_explanation'),
+    status: changeOrderStatusEnum('status').notNull().default('draft'),
+    approvedAt: timestamp('approved_at', { withTimezone: true }),
+    signatureId: uuid('signature_id').references(() => signatures.id),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    secureLinkTokenHash: text('secure_link_token_hash'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('change_orders_org_number_idx').on(table.organizationId, table.changeOrderNumber),
+    index('change_orders_project_idx').on(table.projectId),
+    index('change_orders_contract_idx').on(table.contractId),
+    index('change_orders_token_idx').on(table.secureLinkTokenHash),
+  ],
+);
+
+/** The added/removed lines that make up a change order's cost impact. */
+export const changeOrderItems = pgTable(
+  'change_order_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    changeOrderId: uuid('change_order_id')
+      .notNull()
+      .references(() => changeOrders.id, { onDelete: 'cascade' }),
+    direction: text('direction').notNull(),
+    description: text('description').notNull(),
+    /** Always stored as a positive magnitude; `direction` carries the sign. */
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('change_order_items_order_idx').on(table.changeOrderId, table.sortOrder)],
+);
+
+/**
  * E-signature records (Task 19). Polymorphic by design — one table serves
  * proposals now and change orders/contracts later via signableType/signableId.
  * Rows are append-only (a DB trigger blocks UPDATE/DELETE): a signature is
@@ -1002,3 +1079,6 @@ export type Contract = typeof contracts.$inferSelect;
 export type NewContract = typeof contracts.$inferInsert;
 export type PaymentSchedule = typeof paymentSchedules.$inferSelect;
 export type PaymentMilestone = typeof paymentMilestones.$inferSelect;
+export type ChangeOrder = typeof changeOrders.$inferSelect;
+export type NewChangeOrder = typeof changeOrders.$inferInsert;
+export type ChangeOrderItem = typeof changeOrderItems.$inferSelect;

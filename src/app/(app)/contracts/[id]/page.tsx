@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
-import { AlertTriangle, ArrowLeft, Lock, Printer } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FilePlus2, Lock, Printer } from 'lucide-react';
 import { getDb, schema } from '@/db';
 import { resolveTerms, unresolvedBlanks } from '@/lib/contracts/terms-core';
 import { getAuthContext } from '@/lib/auth/session';
@@ -20,8 +20,16 @@ import {
 } from '@/lib/contracts/contracts-core';
 import { toNum } from '@/lib/catalog/catalog-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { ContractStatusBadge } from '@/components/contracts/contract-status-badge';
+import { ChangeOrderStatusBadge } from '@/components/change-orders/change-order-status-badge';
+import { changeOrdersForContract } from '@/lib/change-orders/queries';
+import { createChangeOrder } from '@/lib/change-orders/actions';
+import {
+  formatScheduleChange,
+  revisedContractValue,
+  totalScheduleChange,
+} from '@/lib/change-orders/change-orders-core';
 import { ScheduleForm } from './schedule-form';
 import { StatusActions } from './status-actions';
 
@@ -52,6 +60,10 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
     .from(schema.organizations)
     .where(eq(schema.organizations.id, orgId));
   const termsBlanks = unresolvedBlanks(resolveTerms(org?.contractTerms));
+
+  const changeOrders = await changeOrdersForContract(orgId, contract.id);
+  const revised = revisedContractValue(value, changeOrders);
+  const scheduleDays = totalScheduleChange(changeOrders);
 
   const { schedule, milestones } = await paymentScheduleFor(orgId, contract.id);
   const structure: PaymentStructure =
@@ -126,11 +138,31 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
           <CardTitle className="text-base">Agreement</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="flex items-center justify-between rounded-md border-2 border-primary/30 bg-primary/5 p-4">
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Contract value
-            </span>
-            <span className="text-2xl font-bold tabular-nums">{formatMoney(value)}</span>
+          <div className="rounded-md border-2 border-primary/30 bg-primary/5 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                {revised !== value ? 'Revised contract value' : 'Contract value'}
+              </span>
+              <span className="text-2xl font-bold tabular-nums">{formatMoney(revised)}</span>
+            </div>
+            {revised !== value ? (
+              <div className="mt-2 space-y-0.5 border-t border-primary/20 pt-2 text-xs text-muted-foreground">
+                <div className="flex justify-between">
+                  <span>Original signed value</span>
+                  <span className="tabular-nums">{formatMoney(value)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Approved change orders</span>
+                  <span className="tabular-nums">{formatMoney(revised - value)}</span>
+                </div>
+                {scheduleDays !== 0 ? (
+                  <div className="flex justify-between">
+                    <span>Schedule impact</span>
+                    <span>{formatScheduleChange(scheduleDays)}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {contract.scopeSummary ? (
@@ -209,6 +241,57 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
               No payment schedule set{editable ? ' yet.' : ' before this contract was locked.'}
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Change orders</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {changeOrders.length > 0 ? (
+            <ul className="divide-y rounded-md border">
+              {changeOrders.map((co) => (
+                <li key={co.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                  <div className="min-w-0">
+                    <Link
+                      href={`/change-orders/${co.id}`}
+                      className="text-sm font-medium hover:underline"
+                    >
+                      {co.changeOrderNumber}
+                    </Link>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {co.reason ?? 'No reason given'}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="text-sm font-medium tabular-nums">
+                      {formatMoney(co.costChange)}
+                    </span>
+                    <ChangeOrderStatusBadge status={co.status} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No change orders. Raise one when the scope, price, or schedule needs to change.
+            </p>
+          )}
+
+          {mayWrite && !editable ? (
+            <form action={createChangeOrder}>
+              <input type="hidden" name="contractId" value={contract.id} />
+              <Button type="submit" variant="outline" size="sm" className="w-auto">
+                <FilePlus2 className="h-4 w-4" />
+                New change order
+              </Button>
+            </form>
+          ) : mayWrite ? (
+            <p className="text-xs text-muted-foreground">
+              This contract is still a draft — edit it directly instead of raising a change order.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 

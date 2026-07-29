@@ -1555,3 +1555,124 @@ end $$;
 -- ═══ Part 17 — Task 20b: contract terms & conditions ═══
 -- Per-org T&C text for the printable contract; null → built-in starter template.
 alter table organizations add column if not exists contract_terms text;
+
+-- ═══ Part 18 — Task 21: change orders ═══
+
+do $$ begin
+  create type change_order_status as enum ('draft','internal_review','sent','viewed',
+    'approved','declined','incorporated','canceled');
+exception when duplicate_object then null; end $$;
+
+create table if not exists change_orders (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  contract_id uuid references contracts(id),
+  change_order_number text not null,
+  requested_by text,
+  reason text,
+  cost_change numeric(14,2) not null default 0,
+  schedule_change_days integer default 0,
+  internal_notes text,
+  client_explanation text,
+  status change_order_status not null default 'draft',
+  approved_at timestamptz,
+  signature_id uuid references signatures(id),
+  locked_at timestamptz,
+  secure_link_token_hash text,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists change_order_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  change_order_id uuid not null references change_orders(id) on delete cascade,
+  direction text not null,
+  description text not null,
+  amount numeric(14,2) not null default 0,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists change_orders_org_number_idx
+  on change_orders (organization_id, change_order_number);
+create index if not exists change_orders_project_idx on change_orders (project_id);
+create index if not exists change_orders_contract_idx on change_orders (contract_id);
+create index if not exists change_orders_token_idx on change_orders (secure_link_token_hash);
+create index if not exists change_order_items_order_idx
+  on change_order_items (change_order_id, sort_order);
+
+drop trigger if exists change_orders_set_updated_at on change_orders;
+create trigger change_orders_set_updated_at before update on change_orders
+  for each row execute function set_updated_at();
+
+-- Approved change orders are evidence of agreement: their substance is frozen.
+create or replace function change_orders_freeze_after_approval() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  if old.status in ('approved', 'incorporated', 'canceled') then
+    if new.cost_change is distinct from old.cost_change
+       or new.schedule_change_days is distinct from old.schedule_change_days
+       or new.client_explanation is distinct from old.client_explanation
+       or new.change_order_number is distinct from old.change_order_number
+       or new.project_id is distinct from old.project_id
+       or new.contract_id is distinct from old.contract_id
+       or new.organization_id is distinct from old.organization_id then
+      raise exception
+        'change order % is % and its terms are frozen; raise a new change order instead',
+        old.change_order_number, old.status
+        using errcode = 'restrict_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists change_orders_freeze on change_orders;
+create trigger change_orders_freeze before update on change_orders
+  for each row execute function change_orders_freeze_after_approval();
+
+create or replace function change_order_items_follow_parent() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  parent_status text;
+begin
+  select co.status::text into parent_status
+    from public.change_orders co
+    where co.id = coalesce(new.change_order_id, old.change_order_id);
+
+  if parent_status is not null
+     and parent_status not in ('draft', 'internal_review') then
+    raise exception 'change order line items are locked once the change order is %', parent_status
+      using errcode = 'restrict_violation';
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists change_order_items_locked on change_order_items;
+create trigger change_order_items_locked
+  before insert or update or delete on change_order_items
+  for each row execute function change_order_items_follow_parent();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['change_orders','change_order_items']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

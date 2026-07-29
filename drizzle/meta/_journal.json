@@ -190,6 +190,20 @@
       "when": 1785226365314,
       "tag": "0026_gorgeous_gambit",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785365449175,
+      "tag": "0027_slow_spiral",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785365450303,
+      "tag": "0028_change_orders_rls",
+      "breakpoints": true
     }
   ]
 }

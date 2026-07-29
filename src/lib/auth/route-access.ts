@@ -16,6 +16,7 @@ const PROTECTED_PREFIXES = [
   '/estimates',
   '/proposals',
   '/contracts',
+  '/change-orders',
   '/schedule',
   '/tasks',
   '/documents',
