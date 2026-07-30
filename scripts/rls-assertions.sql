@@ -1150,5 +1150,139 @@ begin
   raise notice 'PASS: crew assignments cascade with the work item';
 end $$;
 
+-- ═══════════════════ Field tasks (Task 24) ═══════════════════════════════════
+reset role;
+insert into project_tasks (id, organization_id, project_id, title, status) values
+  ('00280aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'Demo the vanity', 'not_started'),
+  ('00280aaa-0000-4000-8000-000000000002', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'Set the new vanity', 'not_started'),
+  ('00280bbb-0000-4000-8000-000000000003', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'Other org task', 'not_started');
+insert into task_checklist_items (organization_id, task_id, label) values
+  ('0000000a-0000-4000-8000-000000000001', '00280aaa-0000-4000-8000-000000000001',
+   'Shut off the water'),
+  ('0000000b-0000-4000-8000-000000000002', '00280bbb-0000-4000-8000-000000000003',
+   'Not yours');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; finished timestamptz;
+begin
+  select count(*) into n from project_tasks;
+  if n <> 2 then raise exception 'FAIL: expected 2 tasks, saw %', n; end if;
+  select count(*) into n from task_checklist_items;
+  if n <> 1 then raise exception 'FAIL: expected 1 checklist item, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (tasks)';
+
+  begin
+    insert into project_tasks (organization_id, project_id, title)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', 'Sneaky');
+    raise exception 'FAIL: cross-org task insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org task insert blocked';
+  end;
+
+  begin
+    insert into task_checklist_items (organization_id, task_id, label)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '00280bbb-0000-4000-8000-000000000003', 'Sneaky step');
+    raise exception 'FAIL: cross-org checklist insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org checklist insert blocked';
+  end;
+
+  -- A backwards date range is rejected; either date alone is fine.
+  update project_tasks set due_date = '2026-08-07'
+    where id = '00280aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: a due date with no start date is allowed';
+
+  begin
+    update project_tasks set start_date = '2026-08-10'
+      where id = '00280aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: due_date before start_date was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: due_date must be on or after start_date';
+  end;
+
+  begin
+    update project_tasks set actual_hours = -2
+      where id = '00280aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: negative hours were ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: hours cannot be negative';
+  end;
+
+  -- completed_at is maintained by the database, not by whoever writes the row.
+  update project_tasks set status = 'completed'
+    where id = '00280aaa-0000-4000-8000-000000000001';
+  select completed_at into finished from project_tasks
+    where id = '00280aaa-0000-4000-8000-000000000001';
+  if finished is null then raise exception 'FAIL: completed task has no completed_at'; end if;
+  raise notice 'PASS: completing a task records completed_at';
+
+  update project_tasks set status = 'rework_required'
+    where id = '00280aaa-0000-4000-8000-000000000001';
+  select completed_at into finished from project_tasks
+    where id = '00280aaa-0000-4000-8000-000000000001';
+  if finished is not null then raise exception 'FAIL: reopened task kept completed_at'; end if;
+  raise notice 'PASS: reopening a task clears completed_at';
+
+  -- A task cannot wait on itself.
+  begin
+    insert into task_dependencies (organization_id, task_id, depends_on_task_id)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00280aaa-0000-4000-8000-000000000001',
+              '00280aaa-0000-4000-8000-000000000001');
+    raise exception 'FAIL: self-dependency was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: task self-dependency rejected';
+  end;
+
+  -- Nor on a task belonging to another project. The other org's task is invisible
+  -- under RLS, so the trigger sees a null project and rejects the mismatch.
+  begin
+    insert into task_dependencies (organization_id, task_id, depends_on_task_id)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00280aaa-0000-4000-8000-000000000002',
+              '00280bbb-0000-4000-8000-000000000003');
+    raise exception 'FAIL: cross-project task dependency was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: cross-project task dependency rejected';
+  end;
+
+  -- Same project is fine, and only once.
+  insert into task_dependencies (organization_id, task_id, depends_on_task_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00280aaa-0000-4000-8000-000000000002',
+            '00280aaa-0000-4000-8000-000000000001');
+  raise notice 'PASS: same-project task dependency allowed';
+
+  begin
+    insert into task_dependencies (organization_id, task_id, depends_on_task_id)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00280aaa-0000-4000-8000-000000000002',
+              '00280aaa-0000-4000-8000-000000000001');
+    raise exception 'FAIL: duplicate dependency was ALLOWED';
+  exception when unique_violation then
+    raise notice 'PASS: duplicate dependency rejected';
+  end;
+
+  -- Deleting a task takes its checklist and its dependency edges with it.
+  delete from project_tasks where id = '00280aaa-0000-4000-8000-000000000001';
+  select count(*) into n from task_checklist_items
+    where task_id = '00280aaa-0000-4000-8000-000000000001';
+  if n <> 0 then raise exception 'FAIL: checklist outlived its task'; end if;
+  select count(*) into n from task_dependencies
+    where depends_on_task_id = '00280aaa-0000-4000-8000-000000000001';
+  if n <> 0 then raise exception 'FAIL: dependency outlived its task'; end if;
+  raise notice 'PASS: checklists and dependencies cascade with the task';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

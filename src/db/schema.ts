@@ -1312,6 +1312,112 @@ export const scheduleAssignments = pgTable(
   ],
 );
 
+export const taskStatusEnum = pgEnum('task_status', [
+  'not_started',
+  'ready',
+  'in_progress',
+  'blocked',
+  'awaiting_inspection',
+  'completed',
+  'rework_required',
+]);
+
+/**
+ * Field tasks (Task 24) — the actual work orders on a job, as distinct from the
+ * schedule's dated phases. A task may have no dates at all ("fix the sticking
+ * door") while a schedule item always spans days.
+ *
+ * `is_punch_list` marks the end-of-job snags so they can be tracked and closed
+ * out as a group rather than scattered through the build. `blocked` is *not*
+ * stored by the app — it's derived from unfinished dependencies at read time, so
+ * finishing a predecessor unblocks its successors with no second write.
+ */
+export const projectTasks = pgTable(
+  'project_tasks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** Optional link to the schedule phase this task belongs under. */
+    scheduleItemId: uuid('schedule_item_id').references(() => scheduleItems.id, {
+      onDelete: 'set null',
+    }),
+    title: text('title').notNull(),
+    description: text('description'),
+    assigneeId: uuid('assignee_id').references(() => users.id),
+    priority: priorityEnum('priority').notNull().default('medium'),
+    status: taskStatusEnum('status').notNull().default('not_started'),
+    isPunchList: boolean('is_punch_list').notNull().default(false),
+    startDate: date('start_date'),
+    dueDate: date('due_date'),
+    estimatedHours: numeric('estimated_hours', { precision: 12, scale: 4 }),
+    actualHours: numeric('actual_hours', { precision: 12, scale: 4 }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    completionVerifiedBy: uuid('completion_verified_by').references(() => users.id),
+    supervisorApprovedBy: uuid('supervisor_approved_by').references(() => users.id),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: uuid('created_by').references(() => users.id),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('project_tasks_project_idx').on(table.projectId, table.sortOrder),
+    index('project_tasks_assignee_idx').on(table.assigneeId, table.dueDate),
+    index('project_tasks_org_due_idx').on(table.organizationId, table.dueDate),
+    index('project_tasks_schedule_item_idx').on(table.scheduleItemId),
+  ],
+);
+
+/**
+ * Task ordering constraints. Many-to-many — a task can wait on several others —
+ * unlike the schedule's single predecessor. Cycles are checked in the app, where
+ * the message can name the tasks involved.
+ */
+export const taskDependencies = pgTable(
+  'task_dependencies',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => projectTasks.id, { onDelete: 'cascade' }),
+    dependsOnTaskId: uuid('depends_on_task_id')
+      .notNull()
+      .references(() => projectTasks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('task_dependencies_unique_idx').on(table.taskId, table.dependsOnTaskId),
+    index('task_dependencies_depends_idx').on(table.dependsOnTaskId),
+  ],
+);
+
+/** A task's sub-steps. The foreman's own aide-mémoire, not a gate. */
+export const taskChecklistItems = pgTable(
+  'task_checklist_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => projectTasks.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    isDone: boolean('is_done').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('task_checklist_task_idx').on(table.taskId, table.sortOrder)],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -1359,3 +1465,7 @@ export type ChangeOrderItem = typeof changeOrderItems.$inferSelect;
 export type ScheduleItem = typeof scheduleItems.$inferSelect;
 export type NewScheduleItem = typeof scheduleItems.$inferInsert;
 export type ScheduleAssignment = typeof scheduleAssignments.$inferSelect;
+export type ProjectTask = typeof projectTasks.$inferSelect;
+export type NewProjectTask = typeof projectTasks.$inferInsert;
+export type TaskDependency = typeof taskDependencies.$inferSelect;
+export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;

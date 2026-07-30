@@ -2037,3 +2037,152 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 22 — Task 24: field tasks, dependencies & checklists ═══
+
+do $$ begin
+  create type task_status as enum ('not_started','ready','in_progress','blocked',
+    'awaiting_inspection','completed','rework_required');
+exception when duplicate_object then null; end $$;
+
+-- Field tasks are the work orders on a job, as distinct from the schedule's dated
+-- phases: a task may have no dates at all ("fix the sticking door"). `blocked` is
+-- never stored — it is derived from unfinished dependencies at read time, so
+-- finishing a predecessor unblocks its successors with no second write.
+create table if not exists project_tasks (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  schedule_item_id uuid references schedule_items(id) on delete set null,
+  title text not null,
+  description text,
+  assignee_id uuid references users(id),
+  priority priority not null default 'medium',
+  status task_status not null default 'not_started',
+  is_punch_list boolean not null default false,
+  start_date date,
+  due_date date,
+  estimated_hours numeric(12,4),
+  actual_hours numeric(12,4),
+  completed_at timestamptz,
+  completion_verified_by uuid references users(id),
+  supervisor_approved_by uuid references users(id),
+  sort_order integer not null default 0,
+  created_by uuid references users(id),
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists task_dependencies (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  task_id uuid not null references project_tasks(id) on delete cascade,
+  depends_on_task_id uuid not null references project_tasks(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists task_checklist_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  task_id uuid not null references project_tasks(id) on delete cascade,
+  label text not null,
+  is_done boolean not null default false,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists project_tasks_project_idx on project_tasks (project_id, sort_order);
+create index if not exists project_tasks_assignee_idx on project_tasks (assignee_id, due_date);
+create index if not exists project_tasks_org_due_idx on project_tasks (organization_id, due_date);
+create index if not exists project_tasks_schedule_item_idx on project_tasks (schedule_item_id);
+create unique index if not exists task_dependencies_unique_idx
+  on task_dependencies (task_id, depends_on_task_id);
+create index if not exists task_dependencies_depends_idx
+  on task_dependencies (depends_on_task_id);
+create index if not exists task_checklist_task_idx on task_checklist_items (task_id, sort_order);
+
+do $$ begin
+  alter table project_tasks
+    add constraint project_tasks_dates_ordered
+    check (start_date is null or due_date is null or due_date >= start_date);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table project_tasks
+    add constraint project_tasks_hours_nonnegative
+    check ((estimated_hours is null or estimated_hours >= 0)
+       and (actual_hours is null or actual_hours >= 0));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table task_dependencies
+    add constraint task_dependencies_not_self check (task_id <> depends_on_task_id);
+exception when duplicate_object then null; end $$;
+
+-- Keep completed_at in step with the status rather than trusting every caller.
+-- A task sent back for rework loses its completion time.
+create or replace function project_tasks_sync_completion() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  if new.status = 'completed' then
+    new.completed_at := coalesce(new.completed_at, now());
+  else
+    new.completed_at := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists project_tasks_completion_sync on project_tasks;
+create trigger project_tasks_completion_sync
+  before insert or update on project_tasks
+  for each row execute function project_tasks_sync_completion();
+
+create or replace function task_dependencies_check_project() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  task_project uuid;
+  predecessor_project uuid;
+begin
+  select t.project_id into task_project
+    from public.project_tasks t where t.id = new.task_id;
+  select t.project_id into predecessor_project
+    from public.project_tasks t where t.id = new.depends_on_task_id;
+
+  if task_project is distinct from predecessor_project then
+    raise exception 'a task can only depend on another task on the same project'
+      using errcode = 'restrict_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists task_dependencies_project_guard on task_dependencies;
+create trigger task_dependencies_project_guard
+  before insert or update on task_dependencies
+  for each row execute function task_dependencies_check_project();
+
+drop trigger if exists project_tasks_set_updated_at on project_tasks;
+create trigger project_tasks_set_updated_at before update on project_tasks
+  for each row execute function set_updated_at();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['project_tasks','task_dependencies','task_checklist_items']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

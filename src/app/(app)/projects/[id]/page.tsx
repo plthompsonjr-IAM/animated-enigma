@@ -7,7 +7,6 @@ import {
   MapPin,
   FileText,
   Calculator,
-  CalendarRange,
   ListChecks,
   FolderOpen,
   DollarSign,
@@ -40,6 +39,8 @@ import { ProjectBudgetCard } from '@/components/projects/project-budget-card';
 import { assignmentsForConflicts, scheduleForProject } from '@/lib/schedule/queries';
 import { findCrewConflicts } from '@/lib/schedule/schedule-core';
 import { ProjectScheduleCard } from '@/components/schedule/project-schedule-card';
+import { dependenciesForProject, tasksForProject } from '@/lib/tasks/queries';
+import { ProjectTasksCard } from '@/components/tasks/project-tasks-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProjectStatusBadge, ScheduleHealthText } from '@/components/projects/project-badges';
@@ -74,8 +75,9 @@ const WORKSPACE_SECTIONS: {
 }[] = [
   { label: 'Scope of work', icon: FileText, path: 'scope' },
   { label: 'Estimate', icon: Calculator, path: 'estimate' },
-  { label: 'Schedule & tasks', icon: CalendarRange, note: 'Task 22' },
-  { label: 'Daily logs', icon: ListChecks, note: 'Task 24' },
+  // Schedule and tasks now live in their own cards on this page, so the tiles
+  // only cover what still lands with a later task.
+  { label: 'Daily logs', icon: ListChecks, note: 'Task 25' },
   { label: 'Documents & photos', icon: FolderOpen, note: 'Task 26' },
   { label: 'Financials', icon: DollarSign, note: 'Task 30' },
 ];
@@ -93,6 +95,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const showCosts = can(ctx.activeOrg.roles, 'costs:read', ctx.activeOrg.extraPermissions);
   const maySchedule = can(ctx.activeOrg.roles, 'schedule:write', ctx.activeOrg.extraPermissions);
   const mayReadSchedule = can(ctx.activeOrg.roles, 'schedule:read', ctx.activeOrg.extraPermissions);
+  const mayReadTasks = can(ctx.activeOrg.roles, 'tasks:read', ctx.activeOrg.extraPermissions);
+  const mayWriteTasks = can(ctx.activeOrg.roles, 'tasks:write', ctx.activeOrg.extraPermissions);
 
   const row = await getProject(orgId, id);
   if (!row) notFound();
@@ -114,17 +118,22 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     budget,
     scheduleItems,
     crewAssignments,
+    projectTasks,
+    taskDependencies,
   ] = await Promise.all([
     p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
     getProjectTeam(orgId, id),
     getProjectActivities(orgId, id),
     mayWrite ? addableTeamMembers(orgId, id) : Promise.resolve([]),
-    mayReadSchedule ? assignableMembers(orgId) : Promise.resolve([]),
+    // Needed by both the schedule crew picker and the task assignee picker.
+    mayReadSchedule || mayReadTasks ? assignableMembers(orgId) : Promise.resolve([]),
     mayReadSchedule ? visitsForProject(orgId, id) : Promise.resolve([]),
     mayReadFinancials ? projectBudget(orgId, id) : Promise.resolve(null),
     mayReadSchedule ? scheduleForProject(orgId, id) : Promise.resolve([]),
     // Org-wide, so a crew member booked on another job the same week shows up.
     mayReadSchedule ? assignmentsForConflicts(orgId) : Promise.resolve([]),
+    mayReadTasks ? tasksForProject(orgId, id) : Promise.resolve([]),
+    mayReadTasks ? dependenciesForProject(orgId, id) : Promise.resolve([]),
   ]);
 
   // Narrow the org-wide conflicts down to the ones touching this project's work.
@@ -265,6 +274,21 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               }))}
               conflicts={projectConflicts}
               mayWrite={maySchedule}
+            />
+          ) : null}
+
+          {mayReadTasks ? (
+            <ProjectTasksCard
+              projectId={p.id}
+              tasks={projectTasks}
+              dependencies={taskDependencies}
+              members={allMembers.map((m) => ({
+                userId: m.id,
+                name: m.name,
+                email: m.email,
+              }))}
+              phases={scheduleItems.map((i) => ({ id: i.id, name: i.name }))}
+              mayWrite={mayWriteTasks}
             />
           ) : null}
 
