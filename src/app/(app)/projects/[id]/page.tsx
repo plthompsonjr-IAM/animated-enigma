@@ -35,6 +35,8 @@ import {
   type PaymentState,
 } from '@/lib/projects/projects-core';
 import { formatAddress } from '@/lib/clients/clients-core';
+import { projectBudget } from '@/lib/projects/budget';
+import { ProjectBudgetCard } from '@/components/projects/project-budget-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProjectStatusBadge, ScheduleHealthText } from '@/components/projects/project-badges';
@@ -93,14 +95,22 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   if (!row) notFound();
   const p = row.project;
 
-  const [property, team, activities, addableMembers, allMembers, visits] = await Promise.all([
-    p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
-    getProjectTeam(orgId, id),
-    getProjectActivities(orgId, id),
-    mayWrite ? addableTeamMembers(orgId, id) : Promise.resolve([]),
-    mayReadSchedule ? assignableMembers(orgId) : Promise.resolve([]),
-    mayReadSchedule ? visitsForProject(orgId, id) : Promise.resolve([]),
-  ]);
+  const mayReadFinancials = can(
+    ctx.activeOrg.roles,
+    'financials:read',
+    ctx.activeOrg.extraPermissions,
+  );
+
+  const [property, team, activities, addableMembers, allMembers, visits, budget] =
+    await Promise.all([
+      p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
+      getProjectTeam(orgId, id),
+      getProjectActivities(orgId, id),
+      mayWrite ? addableTeamMembers(orgId, id) : Promise.resolve([]),
+      mayReadSchedule ? assignableMembers(orgId) : Promise.resolve([]),
+      mayReadSchedule ? visitsForProject(orgId, id) : Promise.resolve([]),
+      mayReadFinancials ? projectBudget(orgId, id) : Promise.resolve(null),
+    ]);
 
   const archived = Boolean(p.deletedAt);
   const status = p.status as ProjectStatus;
@@ -169,6 +179,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left: overview, workspace sections, timeline */}
         <div className="space-y-6 lg:col-span-2">
+          {budget ? <ProjectBudgetCard budget={budget} /> : null}
+
           <Card>
             <CardHeader>
               <CardTitle>Overview</CardTitle>

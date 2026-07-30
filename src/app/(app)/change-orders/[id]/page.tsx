@@ -1,19 +1,20 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Lock, Receipt } from 'lucide-react';
-import { and, eq } from 'drizzle-orm';
+import { ArrowLeft, Link2, Lock, Receipt } from 'lucide-react';
+import { and, desc, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { invoiceChangeOrder } from '@/lib/invoices/actions';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
-import { getChangeOrder } from '@/lib/change-orders/queries';
-import { changeChangeOrderStatus } from '@/lib/change-orders/actions';
+import { getChangeOrder, signatureForChangeOrder } from '@/lib/change-orders/queries';
+import { changeChangeOrderStatus, shareChangeOrder } from '@/lib/change-orders/actions';
 import {
   CHANGE_ORDER_STATUS_LABELS,
   allowedTransitions,
   costBreakdown,
   countsTowardContract,
   formatScheduleChange,
+  isFrozen,
   isEditable,
   isItemDirection,
   itemDelta,
@@ -24,7 +25,9 @@ import { formatMoney } from '@/lib/invoices/invoices-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ChangeOrderStatusBadge } from '@/components/change-orders/change-order-status-badge';
+import { ApprovalRecord } from '@/components/proposals/approval-record';
 import { ChangeOrderForm } from './change-order-form';
+import { CopyChangeOrderLink } from './copy-link';
 
 export const metadata = { title: 'Change order' };
 
@@ -67,6 +70,17 @@ export default async function ChangeOrderDetailPage({
     amount: i.amount,
   }));
   const totals = costBreakdown(items);
+
+  const signature = await signatureForChangeOrder(orgId, co.id);
+
+  // The raw share token is surfaced once, via the share-event log.
+  const [shareEvent] = await getDb()
+    .select({ token: schema.changeOrderShareEvents.token })
+    .from(schema.changeOrderShareEvents)
+    .where(eq(schema.changeOrderShareEvents.changeOrderId, co.id))
+    .orderBy(desc(schema.changeOrderShareEvents.occurredAt))
+    .limit(1);
+  const shareToken = shareEvent?.token ?? null;
 
   // Has this change order already been billed?
   const [invoice] = countsTowardContract(status)
@@ -193,6 +207,40 @@ export default async function ChangeOrderDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {mayWrite && !isFrozen(status) && !countsTowardContract(status) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Client approval</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Send the client a secure link to review, approve, and sign this change order — no
+              login required. Approving records their signature the same way a proposal does.
+            </p>
+            {shareToken ? <CopyChangeOrderLink token={shareToken} /> : null}
+            <form action={shareChangeOrder}>
+              <input type="hidden" name="changeOrderId" value={co.id} />
+              <Button
+                type="submit"
+                variant={shareToken ? 'outline' : 'default'}
+                size="sm"
+                className="w-auto"
+              >
+                <Link2 className="h-4 w-4" />
+                {shareToken ? 'Regenerate link' : 'Create approval link'}
+              </Button>
+            </form>
+            {shareToken ? (
+              <p className="text-xs text-muted-foreground">
+                Regenerating invalidates the previous link.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {signature ? <ApprovalRecord signature={signature} /> : null}
 
       {countsTowardContract(status) ? (
         <Card>

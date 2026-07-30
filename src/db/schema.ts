@@ -1022,6 +1022,30 @@ export const changeOrders = pgTable(
   ],
 );
 
+/**
+ * Delivery/engagement audit for change orders (mirrors proposal_events). Also
+ * the one place the raw share token is surfaced, so the office can copy the
+ * client link while only its hash lives on the change order itself.
+ */
+export const changeOrderShareEvents = pgTable(
+  'change_order_share_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    changeOrderId: uuid('change_order_id')
+      .notNull()
+      .references(() => changeOrders.id, { onDelete: 'cascade' }),
+    token: text('token'),
+    eventType: text('event_type').notNull().default('shared'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('change_order_share_events_order_idx').on(table.changeOrderId, table.occurredAt),
+  ],
+);
+
 /** The added/removed lines that make up a change order's cost impact. */
 export const changeOrderItems = pgTable(
   'change_order_items',

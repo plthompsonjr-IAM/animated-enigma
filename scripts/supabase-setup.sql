@@ -1899,3 +1899,23 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 20 — change-order client approval links ═══
+
+create table if not exists change_order_share_events (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  change_order_id uuid not null references change_orders(id) on delete cascade,
+  token text,
+  event_type text not null default 'shared',
+  occurred_at timestamptz not null default now()
+);
+create index if not exists change_order_share_events_order_idx
+  on change_order_share_events (change_order_id, occurred_at);
+
+alter table change_order_share_events enable row level security;
+alter table change_order_share_events force row level security;
+drop policy if exists change_order_share_events_tenant on change_order_share_events;
+create policy change_order_share_events_tenant on change_order_share_events
+  using (organization_id = current_org() and is_member_of(organization_id))
+  with check (organization_id = current_org() and is_member_of(organization_id));

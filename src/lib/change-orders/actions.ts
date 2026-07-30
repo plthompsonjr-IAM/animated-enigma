@@ -1,6 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
@@ -11,6 +12,7 @@ import type { FormState } from '@/lib/auth/actions';
 import {
   canTransition,
   costChange,
+  isAwaitingClient,
   formatChangeOrderNumber,
   isEditable,
   isItemDirection,
@@ -19,6 +21,12 @@ import {
   type ChangeOrderStatus,
   type ItemDirection,
 } from './change-orders-core';
+import { generateChangeOrderToken, hashChangeOrderToken } from './tokens';
+import {
+  buildSignatureRecord,
+  clientIpFromForwardedFor,
+  isValidSignerName,
+} from '@/lib/signatures/signature-core';
 
 async function requireFinancialsWrite(): Promise<
   { ok: true; ctx: AuthContext & { orgId: string; userId: string } } | { ok: false; error: string }
@@ -223,6 +231,170 @@ export async function changeChangeOrderStatus(formData: FormData): Promise<void>
   }
 
   revalidatePath(`/change-orders/${changeOrderId}`);
+}
+
+/**
+ * Issue (or re-issue) the client approval link and move the change order to
+ * sent. Regenerating mints a fresh token, which invalidates the old link.
+ */
+export async function shareChangeOrder(formData: FormData): Promise<void> {
+  const auth = await requireFinancialsWrite();
+  if (!auth.ok) return;
+  const { orgId } = auth.ctx;
+
+  const changeOrderId = uuidOrNull(formData.get('changeOrderId'));
+  if (!changeOrderId) return;
+
+  try {
+    const db = getDb();
+    const [current] = await db
+      .select({ id: schema.changeOrders.id, status: schema.changeOrders.status })
+      .from(schema.changeOrders)
+      .where(
+        and(
+          eq(schema.changeOrders.organizationId, orgId),
+          eq(schema.changeOrders.id, changeOrderId),
+        ),
+      );
+    if (!current) return;
+
+    const from = current.status as ChangeOrderStatus;
+    // Only meaningful before the client has decided.
+    if (from !== 'draft' && from !== 'internal_review' && from !== 'sent' && from !== 'viewed') {
+      return;
+    }
+
+    const { token, tokenHash } = generateChangeOrderToken();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.changeOrders)
+        .set({ secureLinkTokenHash: tokenHash, status: 'sent' })
+        .where(eq(schema.changeOrders.id, changeOrderId));
+      // The raw token is surfaced once, via the audit trail, so the office can
+      // copy the link; only its hash is stored on the record.
+      await tx.insert(schema.changeOrderShareEvents).values({
+        organizationId: orgId,
+        changeOrderId,
+        token,
+      });
+    });
+  } catch (error) {
+    logger.error('change-orders: share failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  revalidatePath(`/change-orders/${changeOrderId}`);
+}
+
+/** Record a client view of the shared change order (public, best-effort). */
+export async function recordChangeOrderView(token: string): Promise<void> {
+  const db = getDb();
+  const CO = schema.changeOrders;
+  const [row] = await db
+    .select({ id: CO.id, status: CO.status })
+    .from(CO)
+    .where(eq(CO.secureLinkTokenHash, hashChangeOrderToken(token)));
+  if (!row) return;
+  if ((row.status as ChangeOrderStatus) !== 'sent') return;
+
+  await db.update(CO).set({ status: 'viewed' }).where(eq(CO.id, row.id));
+}
+
+/**
+ * Public client approval or decline, captured with an e-signature on approval —
+ * the same evidentiary treatment proposals get (Task 19).
+ */
+export async function respondToChangeOrder(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const token = String(formData.get('token') ?? '');
+  const decision = String(formData.get('decision') ?? '');
+  const signerName = String(formData.get('signerName') ?? '');
+  const signerEmail = String(formData.get('signerEmail') ?? '');
+  const consent = String(formData.get('consent') ?? '');
+
+  if (token.length < 10) return { error: 'This link is no longer valid.' };
+  if (decision !== 'approve' && decision !== 'decline') {
+    return { error: 'Please choose approve or decline.' };
+  }
+  if (!isValidSignerName(signerName)) {
+    return { error: 'Please enter your full name as your signature.' };
+  }
+  if (decision === 'approve' && consent !== 'on') {
+    return { error: 'Please agree to sign electronically before approving.' };
+  }
+
+  const headerList = await headers();
+  const ipAddress = clientIpFromForwardedFor(headerList.get('x-forwarded-for'));
+  const userAgent = headerList.get('user-agent');
+
+  try {
+    const db = getDb();
+    const CO = schema.changeOrders;
+    const [row] = await db
+      .select({
+        id: CO.id,
+        orgId: CO.organizationId,
+        status: CO.status,
+        contractId: CO.contractId,
+      })
+      .from(CO)
+      .where(eq(CO.secureLinkTokenHash, hashChangeOrderToken(token)));
+    if (!row) return { error: 'This link is no longer valid.' };
+
+    const from = row.status as ChangeOrderStatus;
+    if (!isAwaitingClient(from)) {
+      return { error: 'This change order has already been responded to.' };
+    }
+
+    const [org] = await db
+      .select({ disclosure: schema.organizations.signatureDisclosure })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, row.orgId));
+
+    const next: ChangeOrderStatus = decision === 'approve' ? 'approved' : 'declined';
+
+    await db.transaction(async (tx) => {
+      let signatureId: string | null = null;
+      if (decision === 'approve') {
+        const record = buildSignatureRecord({
+          organizationId: row.orgId,
+          signableType: 'change_order',
+          signableId: row.id,
+          signerName,
+          signerEmail,
+          disclosure: org?.disclosure,
+          ipAddress,
+          userAgent,
+        });
+        const [signature] = await tx
+          .insert(schema.signatures)
+          .values(record)
+          .returning({ id: schema.signatures.id });
+        signatureId = signature?.id ?? null;
+      }
+
+      await tx
+        .update(CO)
+        .set({
+          status: next,
+          ...(decision === 'approve' ? { approvedAt: new Date(), signatureId } : {}),
+        })
+        .where(eq(CO.id, row.id));
+    });
+
+    if (row.contractId) revalidatePath(`/contracts/${row.contractId}`);
+    revalidatePath(`/change-orders/${row.id}`);
+    return { message: decision === 'approve' ? 'approved' : 'declined' };
+  } catch (error) {
+    logger.error('change-orders: respond failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return { error: 'Something went wrong. Please try again.' };
+  }
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
