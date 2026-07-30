@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Lock, Send, Ban } from 'lucide-react';
+import { ArrowLeft, Lock, Printer, Send, Ban } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { getInvoice } from '@/lib/invoices/queries';
@@ -10,6 +10,7 @@ import {
   PAYMENT_METHOD_LABELS,
   balanceOf,
   displayInvoiceStatus,
+  formatCalendarDate,
   formatMoney,
   isEditable,
   lineAmount,
@@ -90,6 +91,15 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
             {row.projectName ?? 'Project'}
           </Link>
         </p>
+        <div className="mt-3">
+          <Link
+            href={`/invoices/${invoice.id}/print`}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <Printer className="h-4 w-4" />
+            Print / PDF
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -128,7 +138,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
           {invoice.dueDate ? (
             <p className="text-sm text-muted-foreground">
-              Due {new Date(invoice.dueDate).toLocaleDateString('en-US')}
+              Due {formatCalendarDate(invoice.dueDate)}
             </p>
           ) : null}
           {invoice.notes ? <p className="text-sm">{invoice.notes}</p> : null}
@@ -214,7 +224,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                         {payment.referenceNumber ? ` · ${payment.referenceNumber}` : ''}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {new Date(payment.paymentDate).toLocaleDateString('en-US')}
+                        {formatCalendarDate(payment.paymentDate)}
                         {payment.isRefund ? ' · refund' : ''}
                       </div>
                     </div>

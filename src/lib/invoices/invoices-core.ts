@@ -233,11 +233,30 @@ export function displayInvoiceStatus(
   return stored;
 }
 
+/**
+ * Reads a value as a local calendar day. A bare `YYYY-MM-DD` has to be parsed as
+ * local midnight: `new Date('2026-08-24')` is *UTC* midnight, which is still the
+ * 23rd anywhere west of Greenwich — enough to call an invoice overdue a day early
+ * and to print the wrong due date on the client's copy. Returns null if unusable.
+ */
+export function calendarDay(value?: string | Date | null): Date | null {
+  if (!value) return null;
+  const date =
+    typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? new Date(`${value}T00:00:00`)
+      : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** A calendar date for display, or `fallback` when there isn't one. */
+export function formatCalendarDate(value?: string | Date | null, fallback = '—'): string {
+  return calendarDay(value)?.toLocaleDateString('en-US') ?? fallback;
+}
+
 /** Past its due date (end of the due day is still on time). */
 export function isPastDue(dueDate?: string | Date | null, now: Date = new Date()): boolean {
-  if (!dueDate) return false;
-  const due = new Date(dueDate);
-  if (Number.isNaN(due.getTime())) return false;
+  const due = calendarDay(dueDate);
+  if (!due) return false;
   // Due dates are calendar days: anything before the end of that day is on time.
   due.setHours(23, 59, 59, 999);
   return now.getTime() > due.getTime();
@@ -256,8 +275,8 @@ export const AGING_BUCKET_LABELS: Record<AgingBucket, string> = {
 
 /** Receivables aging bucket for an unpaid invoice. */
 export function agingBucket(dueDate?: string | Date | null, now: Date = new Date()): AgingBucket {
-  if (!isPastDue(dueDate, now) || !dueDate) return 'current';
-  const due = new Date(dueDate);
+  const due = calendarDay(dueDate);
+  if (!due || !isPastDue(dueDate, now)) return 'current';
   due.setHours(23, 59, 59, 999);
   const days = Math.floor((now.getTime() - due.getTime()) / 86_400_000);
   if (days <= 30) return '1_30';

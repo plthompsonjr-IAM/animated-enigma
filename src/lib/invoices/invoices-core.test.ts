@@ -5,7 +5,9 @@ import {
   agingBucket,
   allocatedTotal,
   balanceOf,
+  calendarDay,
   displayInvoiceStatus,
+  formatCalendarDate,
   formatInvoiceNumber,
   invoiceTotals,
   isCollectable,
@@ -136,6 +138,36 @@ describe('validateInvoice', () => {
   });
   it('rejects a zero-total invoice', () => {
     expect(validateInvoice(good, invoiceTotals(good, 0, 5000)).error).toContain('totals zero');
+  });
+});
+
+describe('calendarDay', () => {
+  it('reads a bare date as local midnight, not UTC midnight', () => {
+    // Timezone-independent: whatever zone this runs in, 2026-08-24 must stay the
+    // 24th at 00:00 local. Parsing it as UTC would land on the 23rd in Ohio.
+    const day = calendarDay('2026-08-24');
+    expect(day).not.toBeNull();
+    expect(day!.getFullYear()).toBe(2026);
+    expect(day!.getMonth()).toBe(7);
+    expect(day!.getDate()).toBe(24);
+    expect(day!.getHours()).toBe(0);
+  });
+  it('passes timestamps and Dates through', () => {
+    const stamp = calendarDay('2026-08-24T18:30:00Z');
+    expect(stamp?.toISOString()).toBe('2026-08-24T18:30:00.000Z');
+    const date = new Date('2026-08-24T18:30:00Z');
+    expect(calendarDay(date)?.getTime()).toBe(date.getTime());
+  });
+  it('returns null for nothing and for garbage', () => {
+    expect(calendarDay(null)).toBeNull();
+    expect(calendarDay(undefined)).toBeNull();
+    expect(calendarDay('')).toBeNull();
+    expect(calendarDay('not-a-date')).toBeNull();
+  });
+  it('formats with a caller-chosen fallback', () => {
+    expect(formatCalendarDate('2026-08-24')).toBe('8/24/2026');
+    expect(formatCalendarDate(null)).toBe('—');
+    expect(formatCalendarDate(null, 'On receipt')).toBe('On receipt');
   });
 });
 

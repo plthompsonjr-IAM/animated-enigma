@@ -300,3 +300,62 @@ export async function updateMemberRoles(_prev: FormState, formData: FormData): P
   revalidatePath('/settings/team');
   return { message: 'Roles updated.' };
 }
+
+const orgSettingsSchema = z.object({
+  name: z.string().trim().min(2, 'Company name is required.').max(200),
+  tagline: z.string().trim().max(200).optional(),
+  timezone: z.string().trim().min(1).max(64),
+  signatureDisclosure: z.string().trim().max(5000).optional(),
+  contractTerms: z.string().trim().max(50000).optional(),
+});
+
+/**
+ * Organization settings: branding, timezone, and the two legal texts the
+ * client-facing documents depend on — the e-signature disclosure (Task 19) and
+ * the contract terms & conditions (Task 20). Blank values fall back to the
+ * built-in defaults rather than producing an empty clause.
+ */
+export async function updateOrganizationSettings(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const ctx = await getAuthContext();
+  if (!ctx.userId) redirect('/login');
+  if (!ctx.dbAvailable || !ctx.activeOrg) {
+    return { error: 'Database or organization is not configured yet.' };
+  }
+  try {
+    assertCan(ctx.activeOrg.roles, 'org:manage', ctx.activeOrg.extraPermissions);
+  } catch {
+    return { error: 'You do not have permission to change organization settings.' };
+  }
+
+  const parsed = orgSettingsSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? 'Please check the form.' };
+  }
+  const { name, tagline, timezone, signatureDisclosure, contractTerms } = parsed.data;
+
+  try {
+    const db = getDb();
+    await db
+      .update(schema.organizations)
+      .set({
+        name,
+        tagline: tagline && tagline.length > 0 ? tagline : null,
+        timezone,
+        signatureDisclosure:
+          signatureDisclosure && signatureDisclosure.length > 0 ? signatureDisclosure : null,
+        contractTerms: contractTerms && contractTerms.length > 0 ? contractTerms : null,
+      })
+      .where(eq(schema.organizations.id, ctx.activeOrg.organizationId));
+  } catch (error) {
+    logger.error('org: settings update failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return { error: 'Something went wrong saving your settings.' };
+  }
+
+  revalidatePath('/settings');
+  return { message: 'Settings saved.' };
+}
