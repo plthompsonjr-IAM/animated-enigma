@@ -37,6 +37,9 @@ import {
 import { formatAddress } from '@/lib/clients/clients-core';
 import { projectBudget } from '@/lib/projects/budget';
 import { ProjectBudgetCard } from '@/components/projects/project-budget-card';
+import { assignmentsForConflicts, scheduleForProject } from '@/lib/schedule/queries';
+import { findCrewConflicts } from '@/lib/schedule/schedule-core';
+import { ProjectScheduleCard } from '@/components/schedule/project-schedule-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProjectStatusBadge, ScheduleHealthText } from '@/components/projects/project-badges';
@@ -101,16 +104,35 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     ctx.activeOrg.extraPermissions,
   );
 
-  const [property, team, activities, addableMembers, allMembers, visits, budget] =
-    await Promise.all([
-      p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
-      getProjectTeam(orgId, id),
-      getProjectActivities(orgId, id),
-      mayWrite ? addableTeamMembers(orgId, id) : Promise.resolve([]),
-      mayReadSchedule ? assignableMembers(orgId) : Promise.resolve([]),
-      mayReadSchedule ? visitsForProject(orgId, id) : Promise.resolve([]),
-      mayReadFinancials ? projectBudget(orgId, id) : Promise.resolve(null),
-    ]);
+  const [
+    property,
+    team,
+    activities,
+    addableMembers,
+    allMembers,
+    visits,
+    budget,
+    scheduleItems,
+    crewAssignments,
+  ] = await Promise.all([
+    p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
+    getProjectTeam(orgId, id),
+    getProjectActivities(orgId, id),
+    mayWrite ? addableTeamMembers(orgId, id) : Promise.resolve([]),
+    mayReadSchedule ? assignableMembers(orgId) : Promise.resolve([]),
+    mayReadSchedule ? visitsForProject(orgId, id) : Promise.resolve([]),
+    mayReadFinancials ? projectBudget(orgId, id) : Promise.resolve(null),
+    mayReadSchedule ? scheduleForProject(orgId, id) : Promise.resolve([]),
+    // Org-wide, so a crew member booked on another job the same week shows up.
+    mayReadSchedule ? assignmentsForConflicts(orgId) : Promise.resolve([]),
+  ]);
+
+  // Narrow the org-wide conflicts down to the ones touching this project's work.
+  const allConflicts = findCrewConflicts(crewAssignments);
+  const projectConflicts = allConflicts.filter(
+    (c) =>
+      scheduleItems.some((i) => i.id === c.a.id) || scheduleItems.some((i) => i.id === c.b.id),
+  );
 
   const archived = Boolean(p.deletedAt);
   const status = p.status as ProjectStatus;
@@ -231,6 +253,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               </dl>
             </CardContent>
           </Card>
+
+          {mayReadSchedule ? (
+            <ProjectScheduleCard
+              projectId={p.id}
+              items={scheduleItems}
+              crew={allMembers.map((m) => ({
+                userId: m.id,
+                name: m.name,
+                email: m.email,
+              }))}
+              conflicts={projectConflicts}
+              mayWrite={maySchedule}
+            />
+          ) : null}
 
           <Card>
             <CardHeader>

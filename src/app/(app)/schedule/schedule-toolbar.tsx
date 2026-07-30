@@ -10,8 +10,26 @@ interface Member {
   email: string;
 }
 
-/** Assignee filter for the schedule, reflected into the URL query. */
-export function ScheduleToolbar({ members }: { members: Member[] }) {
+interface ProjectOption {
+  id: string;
+  name: string;
+  number: string | null;
+}
+
+/**
+ * Filters for the schedule, reflected into the URL query so a filtered view can
+ * be bookmarked or shared. Native selects: reliable on a phone, and they work
+ * before the JS lands.
+ */
+export function ScheduleToolbar({
+  members,
+  projects = [],
+  view = 'work',
+}: {
+  members: Member[];
+  projects?: ProjectOption[];
+  view?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -30,12 +48,22 @@ export function ScheduleToolbar({ members }: { members: Member[] }) {
   );
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        aria-label="View"
+        value={view}
+        onChange={(e) => push({ view: e.target.value === 'work' ? '' : e.target.value })}
+        className="w-auto"
+      >
+        <option value="work">Work schedule</option>
+        <option value="visits">Site visits</option>
+      </Select>
+
       <Select
         aria-label="Filter by assignee"
         defaultValue={params.get('assignee') ?? ''}
         onChange={(e) => push({ assignee: e.target.value })}
-        className="sm:w-56"
+        className="w-auto sm:w-56"
       >
         <option value="">Everyone</option>
         {members.map((m) => (
@@ -44,6 +72,23 @@ export function ScheduleToolbar({ members }: { members: Member[] }) {
           </option>
         ))}
       </Select>
+
+      {view === 'work' && projects.length > 0 ? (
+        <Select
+          aria-label="Filter by project"
+          defaultValue={params.get('project') ?? ''}
+          onChange={(e) => push({ project: e.target.value })}
+          className="w-auto sm:w-56"
+        >
+          <option value="">All projects</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.number ? `${p.number} · ${p.name}` : p.name}
+            </option>
+          ))}
+        </Select>
+      ) : null}
+
       {pending ? <span className="sr-only">Updating…</span> : null}
     </div>
   );

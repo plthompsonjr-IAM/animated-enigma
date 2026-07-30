@@ -1235,11 +1235,89 @@ export const signatures = pgTable(
   ],
 );
 
+export const scheduleItemStatusEnum = pgEnum('schedule_item_status', [
+  'not_started',
+  'in_progress',
+  'blocked',
+  'complete',
+  'canceled',
+]);
+
+/**
+ * Project schedule work items (Task 23) — the phases and tasks that make up a
+ * job, each with a calendar-day range.
+ *
+ * Dates are `date`, not `timestamptz`, on purpose: a crew frames Tuesday through
+ * Friday, and storing that as an instant means the day shifts with the reader's
+ * timezone. `depends_on_id` is the predecessor in the trade sequence; it's
+ * advisory (the app warns when a successor starts early) rather than enforced,
+ * because a foreman legitimately overlaps trades. A CHECK keeps end_date on or
+ * after start_date so no query has to defend against a backwards range.
+ */
+export const scheduleItems = pgTable(
+  'schedule_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    phase: text('phase'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    status: scheduleItemStatusEnum('status').notNull().default('not_started'),
+    percentComplete: integer('percent_complete').notNull().default(0),
+    /** Predecessor work item. Self-FK; set null if the predecessor is removed. */
+    dependsOnId: uuid('depends_on_id'),
+    notes: text('notes'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('schedule_items_project_idx').on(table.projectId, table.startDate),
+    index('schedule_items_org_dates_idx').on(table.organizationId, table.startDate, table.endDate),
+    index('schedule_items_depends_idx').on(table.dependsOnId),
+  ],
+);
+
+/**
+ * Who is on a work item. Separate from project_team_members: being on the
+ * project's team is not the same as being booked for a specific week of work,
+ * and conflict detection needs the dated form.
+ */
+export const scheduleAssignments = pgTable(
+  'schedule_assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    scheduleItemId: uuid('schedule_item_id')
+      .notNull()
+      .references(() => scheduleItems.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('schedule_assignments_unique_idx').on(table.scheduleItemId, table.userId),
+    index('schedule_assignments_user_idx').on(table.userId),
+  ],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
 // scopes.current_version_id / approved_version_id → scope_versions.id likewise.
 // proposals.current_version_id → proposal_versions.id likewise.
+// schedule_items.depends_on_id → schedule_items.id likewise (self-reference).
 
 export type Client = typeof clients.$inferSelect;
 export type ClientContact = typeof clientContacts.$inferSelect;
@@ -1278,3 +1356,6 @@ export type PaymentAllocation = typeof paymentAllocations.$inferSelect;
 export type ChangeOrder = typeof changeOrders.$inferSelect;
 export type NewChangeOrder = typeof changeOrders.$inferInsert;
 export type ChangeOrderItem = typeof changeOrderItems.$inferSelect;
+export type ScheduleItem = typeof scheduleItems.$inferSelect;
+export type NewScheduleItem = typeof scheduleItems.$inferInsert;
+export type ScheduleAssignment = typeof scheduleAssignments.$inferSelect;

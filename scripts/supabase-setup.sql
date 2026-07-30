@@ -1919,3 +1919,121 @@ drop policy if exists change_order_share_events_tenant on change_order_share_eve
 create policy change_order_share_events_tenant on change_order_share_events
   using (organization_id = current_org() and is_member_of(organization_id))
   with check (organization_id = current_org() and is_member_of(organization_id));
+
+-- ═══ Part 21 — Task 23: project schedule ═══
+
+do $$ begin
+  create type schedule_item_status as enum
+    ('not_started', 'in_progress', 'blocked', 'complete', 'canceled');
+exception when duplicate_object then null; end $$;
+
+-- Dates are `date`, not timestamptz: a crew frames Tuesday through Friday, and
+-- storing that as an instant makes the day shift with the reader's timezone.
+create table if not exists schedule_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  name text not null,
+  phase text,
+  start_date date not null,
+  end_date date not null,
+  status schedule_item_status not null default 'not_started',
+  percent_complete integer not null default 0,
+  depends_on_id uuid,
+  notes text,
+  sort_order integer not null default 0,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists schedule_assignments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  schedule_item_id uuid not null references schedule_items(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
+  assigned_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists schedule_items_project_idx
+  on schedule_items (project_id, start_date);
+create index if not exists schedule_items_org_dates_idx
+  on schedule_items (organization_id, start_date, end_date);
+create index if not exists schedule_items_depends_idx on schedule_items (depends_on_id);
+create unique index if not exists schedule_assignments_unique_idx
+  on schedule_assignments (schedule_item_id, user_id);
+create index if not exists schedule_assignments_user_idx on schedule_assignments (user_id);
+
+-- A usable range, a sane percentage, and a predecessor that actually belongs to
+-- the same job — guaranteed here so no query has to defend against them.
+do $$ begin
+  alter table schedule_items
+    add constraint schedule_items_dates_ordered check (end_date >= start_date);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table schedule_items
+    add constraint schedule_items_percent_bounds check (percent_complete between 0 and 100);
+exception when duplicate_object then null; end $$;
+
+-- Clearing rather than cascading: losing a predecessor should orphan the
+-- dependency, not delete the successor's work.
+do $$ begin
+  alter table schedule_items
+    add constraint schedule_items_depends_on_id_fk
+    foreign key (depends_on_id) references schedule_items(id) on delete set null;
+exception when duplicate_object then null; end $$;
+
+create or replace function schedule_items_check_dependency() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  predecessor_project uuid;
+begin
+  if new.depends_on_id is null then
+    return new;
+  end if;
+
+  if new.depends_on_id = new.id then
+    raise exception 'a work item cannot depend on itself'
+      using errcode = 'restrict_violation';
+  end if;
+
+  select s.project_id into predecessor_project
+    from public.schedule_items s
+    where s.id = new.depends_on_id;
+
+  if predecessor_project is distinct from new.project_id then
+    raise exception 'a work item can only depend on another item on the same project'
+      using errcode = 'restrict_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists schedule_items_dependency_guard on schedule_items;
+create trigger schedule_items_dependency_guard
+  before insert or update on schedule_items
+  for each row execute function schedule_items_check_dependency();
+
+drop trigger if exists schedule_items_set_updated_at on schedule_items;
+create trigger schedule_items_set_updated_at before update on schedule_items
+  for each row execute function set_updated_at();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['schedule_items','schedule_assignments']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

@@ -1041,5 +1041,114 @@ begin
   end;
 end $$;
 
+-- ═══════════════════ Project schedule (Task 23) ══════════════════════════════
+-- Seed one work item per org so isolation and the integrity rules can be checked.
+reset role;
+insert into schedule_items
+  (id, organization_id, project_id, name, start_date, end_date)
+  values
+  ('00270aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', 'Demolition', '2026-08-03', '2026-08-07'),
+  ('00270bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', 'Demolition', '2026-08-03', '2026-08-07');
+insert into schedule_assignments (organization_id, schedule_item_id, user_id) values
+  ('0000000a-0000-4000-8000-000000000001', '00270aaa-0000-4000-8000-000000000001',
+   '00000aaa-0000-4000-8000-000000000001'),
+  ('0000000b-0000-4000-8000-000000000002', '00270bbb-0000-4000-8000-000000000002',
+   '00000bbb-0000-4000-8000-000000000002');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; second_item uuid;
+begin
+  select count(*) into n from schedule_items;
+  if n <> 1 then raise exception 'FAIL: expected 1 schedule item, saw %', n; end if;
+  select count(*) into n from schedule_assignments;
+  if n <> 1 then raise exception 'FAIL: expected 1 assignment, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (schedule)';
+
+  -- Cross-org insert is blocked by the tenant policy.
+  begin
+    insert into schedule_items (organization_id, project_id, name, start_date, end_date)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', 'Sneaky', '2026-08-03', '2026-08-07');
+    raise exception 'FAIL: cross-org schedule item insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org schedule item insert blocked';
+  end;
+
+  begin
+    insert into schedule_assignments (organization_id, schedule_item_id, user_id)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '00270bbb-0000-4000-8000-000000000002',
+              '00000aaa-0000-4000-8000-000000000001');
+    raise exception 'FAIL: cross-org crew assignment was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org crew assignment blocked';
+  end;
+
+  -- A backwards date range is rejected outright.
+  begin
+    update schedule_items set end_date = '2026-08-01'
+      where id = '00270aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: end_date before start_date was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: end_date must be on or after start_date';
+  end;
+
+  -- Percent complete is bounded.
+  begin
+    update schedule_items set percent_complete = 140
+      where id = '00270aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: percent_complete 140 was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: percent_complete is bounded to 0–100';
+  end;
+
+  -- A work item cannot depend on itself.
+  begin
+    update schedule_items set depends_on_id = id
+      where id = '00270aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: self-dependency was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: self-dependency rejected';
+  end;
+
+  -- Nor on an item belonging to another project. The cross-org item is invisible
+  -- under RLS, so the trigger sees a null project and rejects the mismatch.
+  begin
+    update schedule_items set depends_on_id = '00270bbb-0000-4000-8000-000000000002'
+      where id = '00270aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: cross-project dependency was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: cross-project dependency rejected';
+  end;
+
+  -- A dependency within the same project is fine.
+  insert into schedule_items (organization_id, project_id, name, start_date, end_date,
+                              depends_on_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '000e0aaa-0000-4000-8000-000000000001', 'Rough-in', '2026-08-10', '2026-08-14',
+            '00270aaa-0000-4000-8000-000000000001')
+    returning id into second_item;
+  raise notice 'PASS: same-project dependency allowed';
+
+  -- Removing a predecessor orphans the dependency rather than deleting the work.
+  delete from schedule_items where id = '00270aaa-0000-4000-8000-000000000001';
+  select count(*) into n from schedule_items where id = second_item and depends_on_id is null;
+  if n <> 1 then raise exception 'FAIL: successor did not survive predecessor deletion'; end if;
+  raise notice 'PASS: deleting a predecessor clears the dependency, keeps the successor';
+
+  -- Deleting a work item takes its crew assignments with it.
+  select count(*) into n from schedule_assignments
+    where schedule_item_id = '00270aaa-0000-4000-8000-000000000001';
+  if n <> 0 then raise exception 'FAIL: assignments outlived their work item'; end if;
+  raise notice 'PASS: crew assignments cascade with the work item';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;
