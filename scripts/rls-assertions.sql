@@ -938,4 +938,108 @@ begin
 end $$;
 
 reset role;
+
+-- ═══════════════════ Invoice/payment ledger (Task 22) ════════════════════════
+-- Seed a draft invoice with a line in each org.
+reset role;
+insert into invoices
+  (id, organization_id, project_id, client_id, invoice_number, invoice_type, status, subtotal, total, balance)
+  values
+  ('00260aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', '000c0aaa-0000-4000-8000-000000000001',
+   'INV-2026-0001', 'deposit', 'draft', 1000.00, 1000.00, 1000.00),
+  ('00260bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', '000c0bbb-0000-4000-8000-000000000002',
+   'INV-2026-0001', 'deposit', 'draft', 2000.00, 2000.00, 2000.00);
+insert into invoice_line_items (organization_id, invoice_id, description, quantity, unit_price, amount) values
+  ('0000000a-0000-4000-8000-000000000001', '00260aaa-0000-4000-8000-000000000001',
+   'Deposit', 1, 1000.00, 1000.00),
+  ('0000000b-0000-4000-8000-000000000002', '00260bbb-0000-4000-8000-000000000002',
+   'Deposit', 1, 2000.00, 2000.00);
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; pay uuid;
+begin
+  select count(*) into n from invoices;
+  if n <> 1 then raise exception 'FAIL: expected 1 invoice, saw %', n; end if;
+  select count(*) into n from invoice_line_items;
+  if n <> 1 then raise exception 'FAIL: expected 1 invoice line, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (invoices)';
+
+  -- Cross-org invoice insert is blocked.
+  begin
+    insert into invoices (organization_id, project_id, client_id, invoice_number, invoice_type)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002',
+              '000c0bbb-0000-4000-8000-000000000002', 'INV-2026-0099', 'deposit');
+    raise exception 'FAIL: cross-org invoice insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org invoice insert blocked';
+  end;
+
+  -- A draft invoice is editable.
+  update invoices set total = 1200, subtotal = 1200, balance = 1200
+    where id = '00260aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: draft invoice amounts are editable';
+
+  -- Issue it; billed amounts freeze but payment columns must still move.
+  update invoices set status = 'sent' where id = '00260aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: draft → sent transition allowed';
+
+  begin
+    update invoices set total = 5 where id = '00260aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: issued invoice total change was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: issued invoice amounts are frozen';
+  end;
+
+  begin
+    update invoice_line_items set amount = 5
+      where invoice_id = '00260aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: line edit on issued invoice was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: issued invoice lines are locked';
+  end;
+
+  -- Recording a payment must still be possible on an issued invoice.
+  insert into payments (organization_id, project_id, amount, method, locked_at)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '000e0aaa-0000-4000-8000-000000000001', 500.00, 'check', now())
+    returning id into pay;
+  insert into payment_allocations (organization_id, payment_id, invoice_id, amount, locked_at)
+    values ('0000000a-0000-4000-8000-000000000001', pay,
+            '00260aaa-0000-4000-8000-000000000001', 500.00, now());
+  update invoices set amount_paid = 500, balance = 700, status = 'partially_paid'
+    where id = '00260aaa-0000-4000-8000-000000000001';
+  raise notice 'PASS: payment columns and status still update on an issued invoice';
+
+  -- Locked cash is immutable.
+  begin
+    update payments set amount = 9999 where id = pay;
+    raise exception 'FAIL: locked payment amount change was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: locked payment is immutable';
+  end;
+
+  begin
+    delete from payments where id = pay;
+    raise exception 'FAIL: locked payment DELETE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: locked payment cannot be deleted';
+  end;
+
+  begin
+    update payment_allocations set amount = 1 where payment_id = pay;
+    raise exception 'FAIL: locked allocation change was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: locked allocation is immutable';
+  end;
+end $$;
+
+reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

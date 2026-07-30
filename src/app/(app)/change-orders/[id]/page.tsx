@@ -1,6 +1,9 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Lock } from 'lucide-react';
+import { ArrowLeft, Lock, Receipt } from 'lucide-react';
+import { and, eq } from 'drizzle-orm';
+import { getDb, schema } from '@/db';
+import { invoiceChangeOrder } from '@/lib/invoices/actions';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { getChangeOrder } from '@/lib/change-orders/queries';
@@ -9,6 +12,7 @@ import {
   CHANGE_ORDER_STATUS_LABELS,
   allowedTransitions,
   costBreakdown,
+  countsTowardContract,
   formatScheduleChange,
   isEditable,
   isItemDirection,
@@ -16,7 +20,7 @@ import {
   type ChangeOrderItemInput,
   type ChangeOrderStatus,
 } from '@/lib/change-orders/change-orders-core';
-import { formatMoney } from '@/lib/contracts/contracts-core';
+import { formatMoney } from '@/lib/invoices/invoices-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ChangeOrderStatusBadge } from '@/components/change-orders/change-order-status-badge';
@@ -63,6 +67,21 @@ export default async function ChangeOrderDetailPage({
     amount: i.amount,
   }));
   const totals = costBreakdown(items);
+
+  // Has this change order already been billed?
+  const [invoice] = countsTowardContract(status)
+    ? await getDb()
+        .select({
+          id: schema.invoices.id,
+          invoiceNumber: schema.invoices.invoiceNumber,
+          total: schema.invoices.total,
+          status: schema.invoices.status,
+        })
+        .from(schema.invoices)
+        .where(
+          and(eq(schema.invoices.organizationId, orgId), eq(schema.invoices.changeOrderId, co.id)),
+        )
+    : [];
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -174,6 +193,43 @@ export default async function ChangeOrderDetailPage({
           )}
         </CardContent>
       </Card>
+
+      {countsTowardContract(status) ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Billing</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {invoice ? (
+              <p className="text-sm">
+                <Link href={`/invoices/${invoice.id}`} className="font-medium hover:underline">
+                  {invoice.invoiceNumber}
+                </Link>{' '}
+                <span className="text-muted-foreground">
+                  — {formatMoney(invoice.total)} ({invoice.status}).
+                </span>
+              </p>
+            ) : totals.net > 0 && mayWrite ? (
+              <form action={invoiceChangeOrder} className="space-y-2">
+                <input type="hidden" name="changeOrderId" value={co.id} />
+                <p className="text-sm text-muted-foreground">
+                  Bill the client for this approved change. The invoice mirrors the itemisation
+                  above, with removed work applied as a credit.
+                </p>
+                <Button type="submit" size="sm" className="w-auto">
+                  <Receipt className="h-4 w-4" />
+                  Create invoice
+                </Button>
+              </form>
+            ) : totals.net <= 0 ? (
+              <p className="text-sm text-muted-foreground">
+                This change order is a credit of {formatMoney(Math.abs(totals.net))} — nothing to
+                invoice. Apply it as a credit on the next invoice instead.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       {mayWrite ? (
         <Card>

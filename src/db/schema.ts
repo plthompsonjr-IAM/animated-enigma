@@ -202,6 +202,37 @@ export const proposalStatusEnum = pgEnum('proposal_status', [
   'expired',
 ]);
 
+/** Invoice lifecycle (Task 22). */
+export const invoiceStatusEnum = pgEnum('invoice_status', [
+  'draft',
+  'sent',
+  'viewed',
+  'partially_paid',
+  'paid',
+  'overdue',
+  'void',
+]);
+
+/** What an invoice is billing for (Task 22). */
+export const invoiceTypeEnum = pgEnum('invoice_type', [
+  'deposit',
+  'milestone',
+  'progress',
+  'change_order',
+  'time_materials',
+  'final',
+  'maintenance',
+]);
+
+/** How money arrived. Provider-independent (Task 22). */
+export const paymentMethodEnum = pgEnum('payment_method', [
+  'card',
+  'ach',
+  'check',
+  'cash',
+  'other',
+]);
+
 /** Change-order approval lifecycle (Task 21). */
 export const changeOrderStatusEnum = pgEnum('change_order_status', [
   'draft',
@@ -1013,6 +1044,141 @@ export const changeOrderItems = pgTable(
 );
 
 /**
+ * Invoices (Task 22). Draft invoices are editable; once issued the billed
+ * amounts are frozen by a DB trigger — only the payment-derived columns
+ * (amount_paid, balance), the status, and the lock bookkeeping may move. A
+ * mistake on an issued invoice is corrected by voiding and re-issuing, so the
+ * financial record stays append-only in spirit.
+ *
+ * `amount_paid` is a cache of the payment allocations; `invoices-core` can
+ * always recompute it, so drift is detectable rather than authoritative.
+ */
+export const invoices = pgTable(
+  'invoices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    clientId: uuid('client_id')
+      .notNull()
+      .references(() => clients.id, { onDelete: 'restrict' }),
+    invoiceNumber: text('invoice_number').notNull(),
+    invoiceType: invoiceTypeEnum('invoice_type').notNull(),
+    milestoneId: uuid('milestone_id').references(() => paymentMilestones.id),
+    changeOrderId: uuid('change_order_id').references(() => changeOrders.id),
+    status: invoiceStatusEnum('status').notNull().default('draft'),
+    subtotal: numeric('subtotal', { precision: 14, scale: 2 }).notNull().default('0'),
+    taxRate: numeric('tax_rate', { precision: 6, scale: 4 }).notNull().default('0'),
+    taxAmount: numeric('tax_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    credits: numeric('credits', { precision: 14, scale: 2 }).notNull().default('0'),
+    total: numeric('total', { precision: 14, scale: 2 }).notNull().default('0'),
+    /** Maintained from payment_allocations. */
+    amountPaid: numeric('amount_paid', { precision: 14, scale: 2 }).notNull().default('0'),
+    balance: numeric('balance', { precision: 14, scale: 2 }).notNull().default('0'),
+    issuedAt: timestamp('issued_at', { withTimezone: true }),
+    dueDate: date('due_date'),
+    paymentInstructions: text('payment_instructions'),
+    notes: text('notes'),
+    pdfDocumentId: uuid('pdf_document_id'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('invoices_org_number_idx').on(table.organizationId, table.invoiceNumber),
+    index('invoices_project_idx').on(table.projectId),
+    index('invoices_client_idx').on(table.clientId),
+    index('invoices_status_due_idx').on(table.status, table.dueDate),
+  ],
+);
+
+/** The billed lines. Tax applies per line so labor can be exempt. */
+export const invoiceLineItems = pgTable(
+  'invoice_line_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id, { onDelete: 'cascade' }),
+    description: text('description').notNull(),
+    quantity: numeric('quantity', { precision: 12, scale: 4 }).default('1'),
+    unitPrice: numeric('unit_price', { precision: 14, scale: 2 }).default('0'),
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    taxable: boolean('taxable').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('invoice_line_items_invoice_idx').on(table.invoiceId, table.sortOrder)],
+);
+
+/**
+ * Money received (or refunded). Deliberately provider-independent: `method`
+ * plus an optional `externalId` that a processor like Stripe can own for
+ * idempotency. Immutable once locked.
+ */
+export const payments = pgTable(
+  'payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').references(() => projects.id),
+    clientId: uuid('client_id').references(() => clients.id),
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    paymentDate: date('payment_date').notNull().defaultNow(),
+    method: paymentMethodEnum('method').notNull(),
+    referenceNumber: text('reference_number'),
+    processorFee: numeric('processor_fee', { precision: 14, scale: 2 }).default('0'),
+    isRefund: boolean('is_refund').notNull().default(false),
+    notes: text('notes'),
+    /** Processor id; unique per org so a webhook retry cannot double-post. */
+    externalId: text('external_id'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('payments_org_external_idx').on(table.organizationId, table.externalId),
+    index('payments_project_idx').on(table.projectId),
+    index('payments_client_date_idx').on(table.clientId, table.paymentDate),
+  ],
+);
+
+/** Applies a payment across one or more invoices. */
+export const paymentAllocations = pgTable(
+  'payment_allocations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id, { onDelete: 'restrict' }),
+    invoiceId: uuid('invoice_id')
+      .notNull()
+      .references(() => invoices.id, { onDelete: 'restrict' }),
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('payment_allocations_payment_idx').on(table.paymentId),
+    index('payment_allocations_invoice_idx').on(table.invoiceId),
+  ],
+);
+
+/**
  * E-signature records (Task 19). Polymorphic by design — one table serves
  * proposals now and change orders/contracts later via signableType/signableId.
  * Rows are append-only (a DB trigger blocks UPDATE/DELETE): a signature is
@@ -1079,6 +1245,12 @@ export type Contract = typeof contracts.$inferSelect;
 export type NewContract = typeof contracts.$inferInsert;
 export type PaymentSchedule = typeof paymentSchedules.$inferSelect;
 export type PaymentMilestone = typeof paymentMilestones.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
+export type NewInvoice = typeof invoices.$inferInsert;
+export type InvoiceLineItem = typeof invoiceLineItems.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
+export type NewPayment = typeof payments.$inferInsert;
+export type PaymentAllocation = typeof paymentAllocations.$inferSelect;
 export type ChangeOrder = typeof changeOrders.$inferSelect;
 export type NewChangeOrder = typeof changeOrders.$inferInsert;
 export type ChangeOrderItem = typeof changeOrderItems.$inferSelect;

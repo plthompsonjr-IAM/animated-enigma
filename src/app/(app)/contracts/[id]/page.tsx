@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { eq } from 'drizzle-orm';
-import { AlertTriangle, ArrowLeft, FilePlus2, Lock, Printer } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, FilePlus2, Lock, Printer, Receipt } from 'lucide-react';
 import { getDb, schema } from '@/db';
 import { resolveTerms, unresolvedBlanks } from '@/lib/contracts/terms-core';
 import { getAuthContext } from '@/lib/auth/session';
@@ -24,6 +24,8 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { ContractStatusBadge } from '@/components/contracts/contract-status-badge';
 import { ChangeOrderStatusBadge } from '@/components/change-orders/change-order-status-badge';
 import { changeOrdersForContract } from '@/lib/change-orders/queries';
+import { invoiceMilestone } from '@/lib/invoices/actions';
+import { milestoneInvoiceMap } from '@/lib/invoices/queries';
 import { createChangeOrder } from '@/lib/change-orders/actions';
 import {
   formatScheduleChange,
@@ -70,6 +72,9 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
     schedule && isPaymentStructure(schedule.structureType)
       ? schedule.structureType
       : 'deposit_balance';
+  // Which milestones already have an invoice, so we don't offer to bill twice.
+  const milestoneInvoices = await milestoneInvoiceMap(orgId, contract.projectId);
+
   const milestoneInputs: MilestoneInput[] = milestones.map((m) => ({
     name: m.name,
     amount: m.amount,
@@ -216,23 +221,44 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
           ) : schedule ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">{PAYMENT_STRUCTURE_LABELS[structure]}</p>
-              {milestoneInputs.length > 0 ? (
+              {milestones.length > 0 ? (
                 <ul className="divide-y rounded-md border">
-                  {milestoneInputs.map((m, i) => (
-                    <li key={i} className="flex items-center justify-between gap-2 px-3 py-2">
-                      <div>
-                        <div className="text-sm font-medium">{m.name}</div>
-                        {m.triggerType ? (
+                  {milestones.map((m, i) => {
+                    const input = milestoneInputs[i]!;
+                    const billed = milestoneInvoices.get(m.id);
+                    return (
+                      <li key={m.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium">{m.name}</div>
                           <div className="text-xs text-muted-foreground">
-                            {MILESTONE_TRIGGER_LABELS[m.triggerType]}
+                            {input.triggerType ? MILESTONE_TRIGGER_LABELS[input.triggerType] : ''}
+                            {billed ? (
+                              <>
+                                {input.triggerType ? ' · ' : ''}
+                                <Link href={`/invoices/${billed.id}`} className="hover:underline">
+                                  {billed.invoiceNumber}
+                                </Link>
+                              </>
+                            ) : null}
                           </div>
-                        ) : null}
-                      </div>
-                      <span className="text-sm font-medium tabular-nums">
-                        {formatMoney(milestoneAmount(m, value))}
-                      </span>
-                    </li>
-                  ))}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="text-sm font-medium tabular-nums">
+                            {formatMoney(milestoneAmount(input, value))}
+                          </span>
+                          {mayWrite && !billed ? (
+                            <form action={invoiceMilestone}>
+                              <input type="hidden" name="milestoneId" value={m.id} />
+                              <Button type="submit" variant="outline" size="sm" className="w-auto">
+                                <Receipt className="h-4 w-4" />
+                                Bill
+                              </Button>
+                            </form>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : null}
             </div>

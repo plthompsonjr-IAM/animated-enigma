@@ -1676,3 +1676,226 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 19 — Task 22: invoices, payments & allocations ═══
+
+do $$ begin
+  create type invoice_status as enum ('draft','sent','viewed','partially_paid','paid','overdue','void');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create type invoice_type as enum ('deposit','milestone','progress','change_order',
+    'time_materials','final','maintenance');
+exception when duplicate_object then null; end $$;
+do $$ begin
+  create type payment_method as enum ('card','ach','check','cash','other');
+exception when duplicate_object then null; end $$;
+
+create table if not exists invoices (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  client_id uuid not null references clients(id) on delete restrict,
+  invoice_number text not null,
+  invoice_type invoice_type not null,
+  milestone_id uuid references payment_milestones(id),
+  change_order_id uuid references change_orders(id),
+  status invoice_status not null default 'draft',
+  subtotal numeric(14,2) not null default 0,
+  tax_rate numeric(6,4) not null default 0,
+  tax_amount numeric(14,2) not null default 0,
+  credits numeric(14,2) not null default 0,
+  total numeric(14,2) not null default 0,
+  amount_paid numeric(14,2) not null default 0,
+  balance numeric(14,2) not null default 0,
+  issued_at timestamptz,
+  due_date date,
+  payment_instructions text,
+  notes text,
+  pdf_document_id uuid,
+  locked_at timestamptz,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists invoice_line_items (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  invoice_id uuid not null references invoices(id) on delete cascade,
+  description text not null,
+  quantity numeric(12,4) default 1,
+  unit_price numeric(14,2) default 0,
+  amount numeric(14,2) not null default 0,
+  taxable boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists payments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid references projects(id),
+  client_id uuid references clients(id),
+  amount numeric(14,2) not null,
+  payment_date date not null default now(),
+  method payment_method not null,
+  reference_number text,
+  processor_fee numeric(14,2) default 0,
+  is_refund boolean not null default false,
+  notes text,
+  external_id text,
+  locked_at timestamptz,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists payment_allocations (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  payment_id uuid not null references payments(id) on delete restrict,
+  invoice_id uuid not null references invoices(id) on delete restrict,
+  amount numeric(14,2) not null,
+  locked_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists invoices_org_number_idx on invoices (organization_id, invoice_number);
+create index if not exists invoices_project_idx on invoices (project_id);
+create index if not exists invoices_client_idx on invoices (client_id);
+create index if not exists invoices_status_due_idx on invoices (status, due_date);
+create index if not exists invoice_line_items_invoice_idx on invoice_line_items (invoice_id, sort_order);
+create unique index if not exists payments_org_external_idx on payments (organization_id, external_id);
+create index if not exists payments_project_idx on payments (project_id);
+create index if not exists payments_client_date_idx on payments (client_id, payment_date);
+create index if not exists payment_allocations_payment_idx on payment_allocations (payment_id);
+create index if not exists payment_allocations_invoice_idx on payment_allocations (invoice_id);
+
+drop trigger if exists invoices_set_updated_at on invoices;
+create trigger invoices_set_updated_at before update on invoices
+  for each row execute function set_updated_at();
+drop trigger if exists payments_set_updated_at on payments;
+create trigger payments_set_updated_at before update on payments
+  for each row execute function set_updated_at();
+
+-- Issued invoices freeze their billed amounts, but must still accept payments.
+create or replace function invoices_freeze_when_issued() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  if old.status <> 'draft' then
+    if new.subtotal is distinct from old.subtotal
+       or new.tax_rate is distinct from old.tax_rate
+       or new.tax_amount is distinct from old.tax_amount
+       or new.credits is distinct from old.credits
+       or new.total is distinct from old.total
+       or new.invoice_number is distinct from old.invoice_number
+       or new.invoice_type is distinct from old.invoice_type
+       or new.project_id is distinct from old.project_id
+       or new.client_id is distinct from old.client_id
+       or new.organization_id is distinct from old.organization_id then
+      raise exception
+        'invoice % is issued (%) and its amounts are frozen; void and re-issue instead',
+        old.invoice_number, old.status
+        using errcode = 'restrict_violation';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists invoices_freeze on invoices;
+create trigger invoices_freeze before update on invoices
+  for each row execute function invoices_freeze_when_issued();
+
+create or replace function invoice_lines_follow_invoice() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  invoice_status_value text;
+begin
+  select i.status::text into invoice_status_value
+    from public.invoices i
+    where i.id = coalesce(new.invoice_id, old.invoice_id);
+
+  if invoice_status_value is not null and invoice_status_value <> 'draft' then
+    raise exception 'invoice line items are locked once the invoice is %', invoice_status_value
+      using errcode = 'restrict_violation';
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists invoice_line_items_locked on invoice_line_items;
+create trigger invoice_line_items_locked
+  before insert or update or delete on invoice_line_items
+  for each row execute function invoice_lines_follow_invoice();
+
+create or replace function payments_append_only_when_locked() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  if tg_op = 'DELETE' then
+    if old.locked_at is not null then
+      raise exception 'locked payments cannot be deleted'
+        using errcode = 'restrict_violation';
+    end if;
+    return old;
+  end if;
+
+  if old.locked_at is not null
+     and (new.amount is distinct from old.amount
+          or new.payment_date is distinct from old.payment_date
+          or new.method is distinct from old.method
+          or new.is_refund is distinct from old.is_refund
+          or new.organization_id is distinct from old.organization_id) then
+    raise exception 'payment is locked and cannot be altered'
+      using errcode = 'restrict_violation';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists payments_locked on payments;
+create trigger payments_locked
+  before update or delete on payments
+  for each row execute function payments_append_only_when_locked();
+
+create or replace function payment_allocations_locked_guard() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  if coalesce(old.locked_at, new.locked_at) is not null and tg_op <> 'INSERT' then
+    if tg_op = 'DELETE' or new.amount is distinct from old.amount then
+      raise exception 'payment allocation is locked and cannot be altered'
+        using errcode = 'restrict_violation';
+    end if;
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists payment_allocations_locked on payment_allocations;
+create trigger payment_allocations_locked
+  before update or delete on payment_allocations
+  for each row execute function payment_allocations_locked_guard();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['invoices','invoice_line_items','payments','payment_allocations']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;
