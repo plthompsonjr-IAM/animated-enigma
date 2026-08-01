@@ -27,6 +27,7 @@ const PROTECTED_PREFIXES = [
   '/invoices',
   '/schedule',
   '/tasks',
+  '/daily-logs',
   '/documents',
   '/financials',
   '/ai-foreman',

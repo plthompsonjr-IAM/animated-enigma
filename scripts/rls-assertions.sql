@@ -1284,5 +1284,163 @@ begin
   raise notice 'PASS: checklists and dependencies cascade with the task';
 end $$;
 
+-- ═══════════════════ Daily logs (Task 25) ════════════════════════════════════
+-- The log is the contemporaneous jobsite record. Three things are checked here
+-- because the app is not trusted with any of them: the edit window, the
+-- automatic revision snapshot, and the append-only history.
+reset role;
+insert into daily_logs (id, organization_id, project_id, log_date, work_completed) values
+  ('00290aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001', current_date, 'Framed the wet wall.'),
+  ('00290bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002', current_date, 'Other org work.');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; window_end timestamptz; snap jsonb;
+begin
+  select count(*) into n from daily_logs;
+  if n <> 1 then raise exception 'FAIL: expected 1 daily log, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (daily logs)';
+
+  begin
+    insert into daily_logs (organization_id, project_id, log_date, work_completed)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', current_date, 'Sneaky');
+    raise exception 'FAIL: cross-org daily log insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org daily log insert blocked';
+  end;
+
+  -- A log records work that has happened.
+  begin
+    insert into daily_logs (organization_id, project_id, log_date, work_completed)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001', current_date + 1, 'Tomorrow');
+    raise exception 'FAIL: future-dated log was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a daily log cannot be dated ahead';
+  end;
+
+  -- One log per project per day.
+  begin
+    insert into daily_logs (organization_id, project_id, log_date, work_completed)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001', current_date, 'Duplicate');
+    raise exception 'FAIL: a second log for the same day was ALLOWED';
+  exception when unique_violation then
+    raise notice 'PASS: one log per project per day';
+  end;
+
+  -- The window is set by the database, not supplied by the caller.
+  select editable_until into window_end from daily_logs
+    where id = '00290aaa-0000-4000-8000-000000000001';
+  if window_end is null then raise exception 'FAIL: no edit window was set'; end if;
+  if window_end <> (current_date + 2)::timestamptz then
+    raise exception 'FAIL: unexpected edit window %', window_end;
+  end if;
+  raise notice 'PASS: the edit window is set by the database on insert';
+
+  -- Editing inside the window works, and snapshots the previous version.
+  update daily_logs set work_completed = 'Framed and sheathed the wet wall.', delays = 'Late delivery.'
+    where id = '00290aaa-0000-4000-8000-000000000001';
+  select count(*) into n from daily_log_revisions
+    where daily_log_id = '00290aaa-0000-4000-8000-000000000001';
+  if n <> 1 then raise exception 'FAIL: expected 1 revision after an edit, saw %', n; end if;
+  select snapshot into snap from daily_log_revisions
+    where daily_log_id = '00290aaa-0000-4000-8000-000000000001';
+  if snap->>'work_completed' <> 'Framed the wet wall.' then
+    raise exception 'FAIL: revision did not capture the previous text (%)', snap->>'work_completed';
+  end if;
+  raise notice 'PASS: an edit inside the window snapshots the previous version';
+
+  -- A no-op update writes no revision.
+  update daily_logs set work_completed = 'Framed and sheathed the wet wall.'
+    where id = '00290aaa-0000-4000-8000-000000000001';
+  select count(*) into n from daily_log_revisions
+    where daily_log_id = '00290aaa-0000-4000-8000-000000000001';
+  if n <> 1 then raise exception 'FAIL: a no-op update wrote a revision'; end if;
+  raise notice 'PASS: an update that changes nothing writes no revision';
+
+  -- The window cannot be widened by an update.
+  update daily_logs set editable_until = now() + interval '30 days',
+                        work_completed = 'Trying to buy time.'
+    where id = '00290aaa-0000-4000-8000-000000000001';
+  select editable_until into window_end from daily_logs
+    where id = '00290aaa-0000-4000-8000-000000000001';
+  if window_end <> (current_date + 2)::timestamptz then
+    raise exception 'FAIL: the edit window was widened to %', window_end;
+  end if;
+  raise notice 'PASS: the edit window cannot be extended by an update';
+
+  -- Revisions are evidence: append-only even for this role.
+  begin
+    update daily_log_revisions set snapshot = '{}'::jsonb
+      where daily_log_id = '00290aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: revision UPDATE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: daily log revisions cannot be edited';
+  end;
+
+  begin
+    delete from daily_log_revisions
+      where daily_log_id = '00290aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: revision DELETE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: daily log revisions cannot be deleted';
+  end;
+end $$;
+
+-- Now prove a log locks once its window passes. Backdating is done as the
+-- privileged role because the trigger deliberately refuses it from the app.
+reset role;
+update daily_logs set editable_until = now() - interval '1 second'
+  where id = '00290aaa-0000-4000-8000-000000000001';
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+begin
+  begin
+    update daily_logs set work_completed = 'Rewriting history.'
+      where id = '00290aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: editing a locked log was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: a locked daily log rejects content edits';
+  end;
+
+  begin
+    delete from daily_logs where id = '00290aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: deleting a locked log was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: a locked daily log cannot be deleted';
+  end;
+end $$;
+
+-- The revision history survives even the privileged role, and outlives edits.
+reset role;
+do $$
+declare n int;
+begin
+  begin
+    update daily_log_revisions set snapshot = '{}'::jsonb;
+    raise exception 'FAIL: privileged revision UPDATE was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: revisions are append-only even for the privileged role';
+  end;
+
+  select count(*) into n from daily_log_revisions
+    where daily_log_id = '00290aaa-0000-4000-8000-000000000001';
+  if n < 1 then raise exception 'FAIL: revision history was lost'; end if;
+  raise notice 'PASS: revision history is intact';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

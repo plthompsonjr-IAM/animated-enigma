@@ -2186,3 +2186,167 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 23 — Task 25: daily logs & revision history ═══
+
+-- The daily log is the contemporaneous record that decides delay claims and
+-- disputes. Its value comes from having been written that day, so the edit
+-- window, the revision snapshot, and the append-only history are all enforced
+-- here rather than trusted to the application.
+create table if not exists daily_logs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  log_date date not null,
+  crew_present text,
+  subs_present text,
+  work_completed text,
+  materials_delivered text,
+  equipment_used text,
+  weather text,
+  delays text,
+  problems text,
+  client_conversations text,
+  safety_incidents text,
+  inspection_activity text,
+  work_planned_tomorrow text,
+  editable_until timestamptz,
+  created_by uuid references users(id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists daily_log_revisions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  daily_log_id uuid not null references daily_logs(id) on delete cascade,
+  snapshot jsonb not null,
+  edited_by uuid references users(id),
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists daily_logs_project_date_idx on daily_logs (project_id, log_date);
+create index if not exists daily_logs_org_date_idx on daily_logs (organization_id, log_date);
+create index if not exists daily_log_revisions_log_idx
+  on daily_log_revisions (daily_log_id, created_at);
+
+do $$ begin
+  alter table daily_logs
+    add constraint daily_logs_not_future check (log_date <= current_date);
+exception when duplicate_object then null; end $$;
+
+-- The window runs to the end of the day after the log's day. The date cast
+-- resolves in the database's timezone (UTC), so in Ohio it closes late evening
+-- the following day — erring toward the shorter window keeps the record
+-- contemporaneous, and a log written next morning is comfortably inside it.
+create or replace function daily_logs_set_edit_window() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  new.editable_until := (new.log_date + 2)::timestamptz;
+  return new;
+end;
+$$;
+
+drop trigger if exists daily_logs_edit_window on daily_logs;
+create trigger daily_logs_edit_window
+  before insert on daily_logs
+  for each row execute function daily_logs_set_edit_window();
+
+create or replace function daily_logs_guard_and_snapshot() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  content_changed boolean;
+begin
+  if tg_op = 'DELETE' then
+    if old.editable_until is not null and now() >= old.editable_until then
+      raise exception
+        'the daily log for % is part of the project record and cannot be deleted',
+        old.log_date
+        using errcode = 'restrict_violation';
+    end if;
+    return old;
+  end if;
+
+  content_changed :=
+    new.crew_present is distinct from old.crew_present
+    or new.subs_present is distinct from old.subs_present
+    or new.work_completed is distinct from old.work_completed
+    or new.materials_delivered is distinct from old.materials_delivered
+    or new.equipment_used is distinct from old.equipment_used
+    or new.weather is distinct from old.weather
+    or new.delays is distinct from old.delays
+    or new.problems is distinct from old.problems
+    or new.client_conversations is distinct from old.client_conversations
+    or new.safety_incidents is distinct from old.safety_incidents
+    or new.inspection_activity is distinct from old.inspection_activity
+    or new.work_planned_tomorrow is distinct from old.work_planned_tomorrow
+    or new.log_date is distinct from old.log_date
+    or new.project_id is distinct from old.project_id
+    or new.organization_id is distinct from old.organization_id;
+
+  if not content_changed then
+    return new;
+  end if;
+
+  if old.editable_until is null or now() >= old.editable_until then
+    raise exception
+      'the daily log for % is locked; record the correction in a later log',
+      old.log_date
+      using errcode = 'restrict_violation';
+  end if;
+
+  new.editable_until := old.editable_until;
+
+  insert into public.daily_log_revisions
+    (organization_id, daily_log_id, snapshot, edited_by)
+    values (old.organization_id, old.id, to_jsonb(old), old.created_by);
+
+  return new;
+end;
+$$;
+
+drop trigger if exists daily_logs_guard on daily_logs;
+create trigger daily_logs_guard
+  before update or delete on daily_logs
+  for each row execute function daily_logs_guard_and_snapshot();
+
+drop trigger if exists daily_logs_set_updated_at on daily_logs;
+create trigger daily_logs_set_updated_at before update on daily_logs
+  for each row execute function set_updated_at();
+
+-- A revision is evidence of what the log said before. Append-only for every
+-- role, with no exception for the application's privileged connection.
+create or replace function daily_log_revisions_append_only() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  raise exception 'daily log revisions are append-only and cannot be % ', lower(tg_op)
+    using errcode = 'restrict_violation';
+end;
+$$;
+
+drop trigger if exists daily_log_revisions_immutable on daily_log_revisions;
+create trigger daily_log_revisions_immutable
+  before update or delete on daily_log_revisions
+  for each row execute function daily_log_revisions_append_only();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['daily_logs','daily_log_revisions']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

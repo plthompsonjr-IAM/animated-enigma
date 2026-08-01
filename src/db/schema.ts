@@ -1418,6 +1418,73 @@ export const taskChecklistItems = pgTable(
   (table) => [index('task_checklist_task_idx').on(table.taskId, table.sortOrder)],
 );
 
+/**
+ * Daily logs (Task 25) — the contemporaneous record of what happened on a
+ * jobsite. This is the document that decides delay claims and disputes, and its
+ * value comes entirely from having been written that day.
+ *
+ * So: one log per project per day, a controlled edit window (`editable_until`,
+ * enforced by a trigger, not by the app), and every edit inside that window
+ * snapshotted to `daily_log_revisions` by a trigger so the history exists whether
+ * or not the app remembers to write it. After the window closes, corrections go
+ * in a later log — the record is not rewritten.
+ */
+export const dailyLogs = pgTable(
+  'daily_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    logDate: date('log_date').notNull(),
+    crewPresent: text('crew_present'),
+    subsPresent: text('subs_present'),
+    workCompleted: text('work_completed'),
+    materialsDelivered: text('materials_delivered'),
+    equipmentUsed: text('equipment_used'),
+    weather: text('weather'),
+    delays: text('delays'),
+    problems: text('problems'),
+    clientConversations: text('client_conversations'),
+    safetyIncidents: text('safety_incidents'),
+    inspectionActivity: text('inspection_activity'),
+    workPlannedTomorrow: text('work_planned_tomorrow'),
+    /** Edits are rejected past this instant. Set by a trigger on insert. */
+    editableUntil: timestamp('editable_until', { withTimezone: true }),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('daily_logs_project_date_idx').on(table.projectId, table.logDate),
+    index('daily_logs_org_date_idx').on(table.organizationId, table.logDate),
+  ],
+);
+
+/**
+ * Revision history for daily logs. Append-only at the database level — a
+ * revision is evidence of what the log said before, so it can't be edited away.
+ */
+export const dailyLogRevisions = pgTable(
+  'daily_log_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    dailyLogId: uuid('daily_log_id')
+      .notNull()
+      .references(() => dailyLogs.id, { onDelete: 'cascade' }),
+    snapshot: jsonb('snapshot').notNull(),
+    editedBy: uuid('edited_by').references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index('daily_log_revisions_log_idx').on(table.dailyLogId, table.createdAt)],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -1469,3 +1536,6 @@ export type ProjectTask = typeof projectTasks.$inferSelect;
 export type NewProjectTask = typeof projectTasks.$inferInsert;
 export type TaskDependency = typeof taskDependencies.$inferSelect;
 export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;
+export type DailyLog = typeof dailyLogs.$inferSelect;
+export type NewDailyLog = typeof dailyLogs.$inferInsert;
+export type DailyLogRevision = typeof dailyLogRevisions.$inferSelect;

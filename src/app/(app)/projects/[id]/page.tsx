@@ -41,6 +41,8 @@ import { findCrewConflicts } from '@/lib/schedule/schedule-core';
 import { ProjectScheduleCard } from '@/components/schedule/project-schedule-card';
 import { dependenciesForProject, tasksForProject } from '@/lib/tasks/queries';
 import { ProjectTasksCard } from '@/components/tasks/project-tasks-card';
+import { loggedDatesForProject, logsForProject } from '@/lib/daily-logs/queries';
+import { ProjectLogsCard } from '@/components/daily-logs/project-logs-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProjectStatusBadge, ScheduleHealthText } from '@/components/projects/project-badges';
@@ -120,6 +122,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     crewAssignments,
     projectTasks,
     taskDependencies,
+    dailyLogs,
+    loggedDates,
   ] = await Promise.all([
     p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
     getProjectTeam(orgId, id),
@@ -134,6 +138,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     mayReadSchedule ? assignmentsForConflicts(orgId) : Promise.resolve([]),
     mayReadTasks ? tasksForProject(orgId, id) : Promise.resolve([]),
     mayReadTasks ? dependenciesForProject(orgId, id) : Promise.resolve([]),
+    logsForProject(orgId, id, 20),
+    loggedDatesForProject(orgId, id),
   ]);
 
   // Narrow the org-wide conflicts down to the ones touching this project's work.
@@ -291,6 +297,14 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               mayWrite={mayWriteTasks}
             />
           ) : null}
+
+          <ProjectLogsCard
+            projectId={p.id}
+            logs={dailyLogs}
+            loggedDates={loggedDates}
+            coverageFrom={p.actualStart ?? p.expectedStart}
+            mayWrite={mayWriteTasks}
+          />
 
           <Card>
             <CardHeader>
