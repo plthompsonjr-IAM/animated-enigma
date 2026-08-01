@@ -1539,5 +1539,72 @@ begin
   raise notice 'PASS: nothing is client-visible until it is shared deliberately';
 end $$;
 
+-- ═══════════════════ Dashboard signals (Task 27) ═════════════════════════════
+-- The dashboard is built from aggregates over almost every table. A wrong enum
+-- value or column name in one of them only shows up when someone opens the page,
+-- so the same shapes are executed here against the real schema. These assert the
+-- queries *run* and stay tenant-scoped; the triage logic on top is unit-tested.
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; m int;
+begin
+  -- Overdue and blocked tasks in one pass.
+  select count(*) filter (where t.due_date < current_date)::int,
+         count(*) filter (where exists (
+           select 1 from task_dependencies d
+           join project_tasks p on p.id = d.depends_on_task_id
+           where d.task_id = t.id and p.status <> 'completed' and p.deleted_at is null
+         ))::int
+    into n, m
+    from project_tasks t
+   where t.deleted_at is null and t.status <> 'completed';
+  raise notice 'PASS: task signal query runs (% overdue, % blocked)', n, m;
+
+  select count(*)::int into n from schedule_items
+   where status not in ('complete','canceled') and end_date < current_date;
+  raise notice 'PASS: schedule signal query runs (% late)', n;
+
+  select count(*)::int into n from projects p
+   where p.deleted_at is null
+     and p.status in ('in_progress','punch_list')
+     and not exists (
+       select 1 from daily_logs l where l.project_id = p.id and l.log_date = current_date
+     );
+  raise notice 'PASS: missing-log signal query runs (% jobs)', n;
+
+  select count(*)::int into n from leads
+   where deleted_at is null and next_follow_up_date < current_date
+     and status not in ('won','lost');
+  raise notice 'PASS: lead follow-up signal query runs (% overdue)', n;
+
+  select count(*)::int into n from proposals where status in ('sent','viewed');
+  raise notice 'PASS: proposal signal query runs (% out)', n;
+
+  select count(*)::int into n from contracts
+   where status = 'active' and signed_signature_id is null;
+  raise notice 'PASS: unsigned-contract signal query runs (% live)', n;
+
+  select count(*)::int into n from change_orders c
+   where c.status in ('approved','incorporated')
+     and not exists (select 1 from invoices i where i.change_order_id = c.id);
+  raise notice 'PASS: unbilled change-order signal query runs (% unbilled)', n;
+
+  -- The KPI counts.
+  select count(*)::int into n from projects
+   where deleted_at is null and status not in ('completed','warranty','closed','cancelled');
+  select count(*)::int into m from leads where deleted_at is null and status = 'new';
+  raise notice 'PASS: KPI count queries run (% active jobs, % new leads)', n, m;
+
+  -- And they stay inside the tenant: org B's project is invisible here, so the
+  -- active-job count can never include it.
+  select count(*)::int into n from projects;
+  if n <> 1 then raise exception 'FAIL: dashboard queries saw % projects, expected 1', n; end if;
+  raise notice 'PASS: dashboard aggregates stay inside the tenant';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;
