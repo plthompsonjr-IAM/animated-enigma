@@ -6,6 +6,7 @@ import {
   timestamp,
   boolean,
   integer,
+  bigint,
   numeric,
   date,
   jsonb,
@@ -1485,6 +1486,100 @@ export const dailyLogRevisions = pgTable(
   (table) => [index('daily_log_revisions_log_idx').on(table.dailyLogId, table.createdAt)],
 );
 
+export const photoCategoryEnum = pgEnum('photo_category', [
+  'before',
+  'progress',
+  'completion',
+  'damage',
+  'other',
+]);
+
+export const documentCategoryEnum = pgEnum('document_category', [
+  'receipt',
+  'plan',
+  'permit',
+  'inspection_report',
+  'contract',
+  'invoice',
+  'product_spec',
+  'warranty',
+  'insurance',
+  'w9',
+  'other',
+]);
+
+/**
+ * Jobsite photos (Task 26). `storage_path` points into a *private* Supabase
+ * Storage bucket — the bytes are never public, and reads go through short-lived
+ * signed URLs minted per request.
+ *
+ * `client_visible` is the gate for anything a client ever sees. It defaults to
+ * false: a photo of a damaged subfloor or an open wall is an internal record
+ * until somebody decides otherwise.
+ */
+export const photos = pgTable(
+  'photos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    /** Optional link to the task or log this photo documents. */
+    taskId: uuid('task_id').references(() => projectTasks.id, { onDelete: 'set null' }),
+    dailyLogId: uuid('daily_log_id').references(() => dailyLogs.id, { onDelete: 'set null' }),
+    storagePath: text('storage_path').notNull(),
+    thumbnailPath: text('thumbnail_path'),
+    mimeType: text('mime_type'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    category: photoCategoryEnum('category').notNull().default('progress'),
+    caption: text('caption'),
+    geolocation: jsonb('geolocation'),
+    takenAt: timestamp('taken_at', { withTimezone: true }),
+    clientVisible: boolean('client_visible').notNull().default(false),
+    uploadedBy: uuid('uploaded_by').references(() => users.id),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('photos_project_idx').on(table.projectId, table.createdAt),
+    index('photos_org_idx').on(table.organizationId, table.createdAt),
+    index('photos_task_idx').on(table.taskId),
+    uniqueIndex('photos_storage_path_idx').on(table.storagePath),
+  ],
+);
+
+/** Project documents — receipts, permits, plans, and generated PDFs. */
+export const documents = pgTable(
+  'documents',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    storagePath: text('storage_path').notNull(),
+    fileName: text('file_name').notNull(),
+    mimeType: text('mime_type'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    category: documentCategoryEnum('category').notNull().default('other'),
+    /** True for system-generated PDFs rather than uploads. */
+    isGenerated: boolean('is_generated').notNull().default(false),
+    clientVisible: boolean('client_visible').notNull().default(false),
+    notes: text('notes'),
+    uploadedBy: uuid('uploaded_by').references(() => users.id),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('documents_project_idx').on(table.projectId, table.createdAt),
+    index('documents_org_category_idx').on(table.organizationId, table.category),
+    uniqueIndex('documents_storage_path_idx').on(table.storagePath),
+  ],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -1539,3 +1634,7 @@ export type TaskChecklistItem = typeof taskChecklistItems.$inferSelect;
 export type DailyLog = typeof dailyLogs.$inferSelect;
 export type NewDailyLog = typeof dailyLogs.$inferInsert;
 export type DailyLogRevision = typeof dailyLogRevisions.$inferSelect;
+export type Photo = typeof photos.$inferSelect;
+export type NewPhoto = typeof photos.$inferInsert;
+export type Document = typeof documents.$inferSelect;
+export type NewDocument = typeof documents.$inferInsert;

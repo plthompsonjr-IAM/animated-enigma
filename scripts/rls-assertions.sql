@@ -1442,5 +1442,102 @@ begin
   raise notice 'PASS: revision history is intact';
 end $$;
 
+-- ═══════════════════ Photos & documents (Task 26) ════════════════════════════
+-- The bytes live in a private storage bucket; these tables hold the metadata and
+-- the access decisions. The constraint that matters is that a storage path is
+-- always namespaced to its owning organisation — a bug that builds one wrongly
+-- must fail at the write, not quietly file one tenant's file under another's.
+reset role;
+insert into photos (id, organization_id, project_id, storage_path, category) values
+  ('002a0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001',
+   'orgs/0000000a-0000-4000-8000-000000000001/projects/000e0aaa-0000-4000-8000-000000000001/photos/x-a.jpg',
+   'before'),
+  ('002a0bbb-0000-4000-8000-000000000002', '0000000b-0000-4000-8000-000000000002',
+   '000e0bbb-0000-4000-8000-000000000002',
+   'orgs/0000000b-0000-4000-8000-000000000002/projects/000e0bbb-0000-4000-8000-000000000002/photos/x-b.jpg',
+   'before');
+insert into documents (id, organization_id, project_id, storage_path, file_name, category) values
+  ('002b0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-000000000001',
+   'orgs/0000000a-0000-4000-8000-000000000001/projects/000e0aaa-0000-4000-8000-000000000001/documents/x-permit.pdf',
+   'permit.pdf', 'permit');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; shared boolean;
+begin
+  select count(*) into n from photos;
+  if n <> 1 then raise exception 'FAIL: expected 1 photo, saw %', n; end if;
+  select count(*) into n from documents;
+  if n <> 1 then raise exception 'FAIL: expected 1 document, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (photos & documents)';
+
+  begin
+    insert into photos (organization_id, project_id, storage_path)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002',
+              'orgs/0000000b-0000-4000-8000-000000000002/x.jpg');
+    raise exception 'FAIL: cross-org photo insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org photo insert blocked';
+  end;
+
+  -- A path outside this organisation's prefix is rejected outright, even for a
+  -- row that otherwise passes the tenant policy.
+  begin
+    insert into photos (organization_id, project_id, storage_path)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001',
+              'orgs/0000000b-0000-4000-8000-000000000002/projects/x/photos/stolen.jpg');
+    raise exception 'FAIL: a photo path under another org was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a storage path must sit under its own organisation';
+  end;
+
+  begin
+    insert into documents (organization_id, project_id, storage_path, file_name)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001',
+              '../../etc/passwd', 'passwd');
+    raise exception 'FAIL: a traversal-shaped document path was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a document path must sit under its own organisation';
+  end;
+
+  begin
+    update photos set size_bytes = -1
+      where id = '002a0aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: a negative photo size was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: file sizes cannot be negative';
+  end;
+
+  -- Two rows can never claim the same object.
+  begin
+    insert into photos (organization_id, project_id, storage_path)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001',
+              'orgs/0000000a-0000-4000-8000-000000000001/projects/000e0aaa-0000-4000-8000-000000000001/photos/x-a.jpg');
+    raise exception 'FAIL: a duplicate storage path was ALLOWED';
+  exception when unique_violation then
+    raise notice 'PASS: a storage path is claimed by at most one row';
+  end;
+
+  -- Client visibility defaults to hidden: a photo of an open wall is internal
+  -- until somebody decides otherwise.
+  select client_visible into shared from photos
+    where id = '002a0aaa-0000-4000-8000-000000000001';
+  if shared then raise exception 'FAIL: photos default to client-visible'; end if;
+  select client_visible into shared from documents
+    where id = '002b0aaa-0000-4000-8000-000000000001';
+  if shared then raise exception 'FAIL: documents default to client-visible'; end if;
+  raise notice 'PASS: nothing is client-visible until it is shared deliberately';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

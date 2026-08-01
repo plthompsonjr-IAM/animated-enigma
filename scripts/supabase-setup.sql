@@ -2350,3 +2350,113 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 24 — Task 26: photos & documents ═══
+--
+-- The bytes live in a PRIVATE Supabase Storage bucket named `project-files`,
+-- which must be created separately (Storage → New bucket → uncheck "Public").
+-- These tables hold the metadata and the access decisions; reads go through
+-- short-lived signed URLs minted per request.
+
+do $$ begin
+  create type photo_category as enum ('before','progress','completion','damage','other');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type document_category as enum ('receipt','plan','permit','inspection_report',
+    'contract','invoice','product_spec','warranty','insurance','w9','other');
+exception when duplicate_object then null; end $$;
+
+create table if not exists photos (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid references projects(id) on delete cascade,
+  task_id uuid references project_tasks(id) on delete set null,
+  daily_log_id uuid references daily_logs(id) on delete set null,
+  storage_path text not null,
+  thumbnail_path text,
+  mime_type text,
+  size_bytes bigint,
+  category photo_category not null default 'progress',
+  caption text,
+  geolocation jsonb,
+  taken_at timestamptz,
+  client_visible boolean not null default false,
+  uploaded_by uuid references users(id),
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists documents (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid references projects(id) on delete cascade,
+  storage_path text not null,
+  file_name text not null,
+  mime_type text,
+  size_bytes bigint,
+  category document_category not null default 'other',
+  is_generated boolean not null default false,
+  client_visible boolean not null default false,
+  notes text,
+  uploaded_by uuid references users(id),
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists photos_project_idx on photos (project_id, created_at);
+create index if not exists photos_org_idx on photos (organization_id, created_at);
+create index if not exists photos_task_idx on photos (task_id);
+create unique index if not exists photos_storage_path_idx on photos (storage_path);
+create index if not exists documents_project_idx on documents (project_id, created_at);
+create index if not exists documents_org_category_idx on documents (organization_id, category);
+create unique index if not exists documents_storage_path_idx on documents (storage_path);
+
+-- Every storage path is namespaced to its owning organisation. The application
+-- builds paths this way; the constraint means a bug that builds one wrongly
+-- fails loudly rather than filing a tenant's file under another's prefix.
+do $$ begin
+  alter table photos add constraint photos_path_org_scoped
+    check (storage_path like 'orgs/' || organization_id::text || '/%');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table photos add constraint photos_size_nonnegative
+    check (size_bytes is null or size_bytes >= 0);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table documents add constraint documents_path_org_scoped
+    check (storage_path like 'orgs/' || organization_id::text || '/%');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table documents add constraint documents_size_nonnegative
+    check (size_bytes is null or size_bytes >= 0);
+exception when duplicate_object then null; end $$;
+
+drop trigger if exists photos_set_updated_at on photos;
+create trigger photos_set_updated_at before update on photos
+  for each row execute function set_updated_at();
+
+drop trigger if exists documents_set_updated_at on documents;
+create trigger documents_set_updated_at before update on documents
+  for each row execute function set_updated_at();
+
+do $$
+declare t text;
+begin
+  foreach t in array array['photos','documents']
+  loop
+    execute format('alter table %I enable row level security', t);
+    execute format('alter table %I force row level security', t);
+    execute format('drop policy if exists %1$s_tenant on %1$I', t);
+    execute format($f$
+      create policy %1$s_tenant on %1$I
+        using (organization_id = current_org() and is_member_of(organization_id))
+        with check (organization_id = current_org() and is_member_of(organization_id))
+    $f$, t);
+  end loop;
+end $$;

@@ -7,8 +7,6 @@ import {
   MapPin,
   FileText,
   Calculator,
-  ListChecks,
-  FolderOpen,
   DollarSign,
 } from 'lucide-react';
 import { getAuthContext } from '@/lib/auth/session';
@@ -43,6 +41,9 @@ import { dependenciesForProject, tasksForProject } from '@/lib/tasks/queries';
 import { ProjectTasksCard } from '@/components/tasks/project-tasks-card';
 import { loggedDatesForProject, logsForProject } from '@/lib/daily-logs/queries';
 import { ProjectLogsCard } from '@/components/daily-logs/project-logs-card';
+import { documentsForProject, photosForProject } from '@/lib/media/queries';
+import { isStorageConfigured } from '@/lib/storage/supabase-storage';
+import { ProjectMediaCard } from '@/components/media/project-media-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProjectStatusBadge, ScheduleHealthText } from '@/components/projects/project-badges';
@@ -79,8 +80,6 @@ const WORKSPACE_SECTIONS: {
   { label: 'Estimate', icon: Calculator, path: 'estimate' },
   // Schedule and tasks now live in their own cards on this page, so the tiles
   // only cover what still lands with a later task.
-  { label: 'Daily logs', icon: ListChecks, note: 'Task 25' },
-  { label: 'Documents & photos', icon: FolderOpen, note: 'Task 26' },
   { label: 'Financials', icon: DollarSign, note: 'Task 30' },
 ];
 
@@ -99,6 +98,16 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const mayReadSchedule = can(ctx.activeOrg.roles, 'schedule:read', ctx.activeOrg.extraPermissions);
   const mayReadTasks = can(ctx.activeOrg.roles, 'tasks:read', ctx.activeOrg.extraPermissions);
   const mayWriteTasks = can(ctx.activeOrg.roles, 'tasks:write', ctx.activeOrg.extraPermissions);
+  const mayReadDocuments = can(
+    ctx.activeOrg.roles,
+    'documents:read',
+    ctx.activeOrg.extraPermissions,
+  );
+  const mayWriteDocuments = can(
+    ctx.activeOrg.roles,
+    'documents:write',
+    ctx.activeOrg.extraPermissions,
+  );
 
   const row = await getProject(orgId, id);
   if (!row) notFound();
@@ -124,6 +133,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     taskDependencies,
     dailyLogs,
     loggedDates,
+    projectPhotos,
+    projectDocuments,
   ] = await Promise.all([
     p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
     getProjectTeam(orgId, id),
@@ -140,6 +151,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     mayReadTasks ? dependenciesForProject(orgId, id) : Promise.resolve([]),
     logsForProject(orgId, id, 20),
     loggedDatesForProject(orgId, id),
+    mayReadDocuments ? photosForProject(orgId, id) : Promise.resolve([]),
+    mayReadDocuments ? documentsForProject(orgId, id) : Promise.resolve([]),
   ]);
 
   // Narrow the org-wide conflicts down to the ones touching this project's work.
@@ -305,6 +318,16 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             coverageFrom={p.actualStart ?? p.expectedStart}
             mayWrite={mayWriteTasks}
           />
+
+          {mayReadDocuments ? (
+            <ProjectMediaCard
+              projectId={p.id}
+              photos={projectPhotos}
+              documents={projectDocuments}
+              mayWrite={mayWriteDocuments}
+              storageConfigured={isStorageConfigured()}
+            />
+          ) : null}
 
           <Card>
             <CardHeader>
