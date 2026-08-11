@@ -55,20 +55,27 @@ Three skills in `.claude/skills/` cover the recurring procedures. Use them.
 | `db-change` | Any edit to `schema.ts`, any migration, constraint, trigger, policy |
 | `ship-check` | Before every commit, and before saying anything is done |
 
-### The verification hook
+## Hooks
 
-`.claude/hooks/verify-evidence.sh` runs on every `Stop`, wired up in
-`.claude/settings.json`. When a turn changed code it runs typecheck, lint, and
-the tests; when it changed migrations or SQL it also runs the RLS suite. **A
-failure blocks the turn from ending.**
+Four, wired in `.claude/settings.json`. They enforce the rules above that were
+otherwise held only by my remembering them.
 
-This exists because rule 6 above is the one that matters most, and "tests pass"
-is the easiest thing in the world to say without having checked. The hook prints
-the real counts — quote those in the report rather than asserting anything.
+| Hook | Event | Does |
+|---|---|---|
+| `verify-evidence.sh` | Stop | Runs typecheck, lint, tests (and the RLS suite when SQL changed). **Blocks the turn on failure.** |
+| `check-schema-completeness.sh` | Stop | Names which of the four schema follow-through steps are still missing |
+| `guard-push.sh` | PreToolUse / Bash | **Denies** any push to a branch other than the designated one, and any force-push |
+| `session-state.sh` | SessionStart | Reports branch, working state, migration count, and what's blocked on Patrick |
 
-It stays quiet for docs-only turns and stamps a passing tree so it doesn't run
-twice on the same state. `pnpm build` is outside it (minutes long); run that
-yourself.
+`verify-evidence.sh` exists because rule 6 is the one that matters most, and
+"tests pass" is the easiest thing in the world to say without having checked. It
+prints the real counts — quote those rather than asserting anything. It stays
+quiet on docs-only turns, stamps a passing tree so it doesn't run twice on the
+same state, and lets a second stop through so a broken tree gets reported rather
+than deadlocking. `pnpm build` is outside it (minutes long); run that yourself.
+
+`guard-push.sh` is a hard deny, not a warning. If it fires, tell Patrick it
+blocked and ask him to confirm — don't work around it.
 
 ---
 
