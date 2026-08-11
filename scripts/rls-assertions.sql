@@ -1606,5 +1606,53 @@ begin
   raise notice 'PASS: dashboard aggregates stay inside the tenant';
 end $$;
 
+-- ═══════════════════ Financials queries (Task 28) ════════════════════════════
+-- The billing-by-job query nests three correlated subqueries over contracts,
+-- change orders, and invoices. A wrong column or enum value there only shows up
+-- when someone opens the page, so the shape runs here against the real schema.
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; owed numeric;
+begin
+  -- Aging input: every invoice with its client and project.
+  select count(*)::int into n
+    from invoices i
+    left join clients c on c.id = i.client_id
+    left join projects p on p.id = i.project_id;
+  raise notice 'PASS: aging input query runs (% invoices)', n;
+
+  -- Billing position per job.
+  select count(*)::int into n from (
+    select p.id,
+      (select c.contract_value from contracts c
+         where c.project_id = p.id and c.status <> 'cancelled'
+         order by c.created_at desc limit 1) as contract_value,
+      coalesce((select sum(co.cost_change) from change_orders co
+         where co.project_id = p.id and co.status in ('approved','incorporated')), 0) as co_delta,
+      coalesce((select sum(i.total) from invoices i
+         where i.project_id = p.id and i.status not in ('draft','void')), 0) as invoiced,
+      coalesce((select sum(i.amount_paid) from invoices i
+         where i.project_id = p.id and i.status not in ('draft','void')), 0) as paid
+    from projects p
+    left join clients c on c.id = p.client_id
+    where p.deleted_at is null
+  ) rows;
+  raise notice 'PASS: billing-by-job query runs (% jobs)', n;
+
+  -- Cash received, with refunds subtracting.
+  select coalesce(sum(case when pm.is_refund then -pm.amount else pm.amount end), 0)
+    into owed from payments pm where pm.payment_date >= current_date - 30;
+  raise notice 'PASS: cash-received query runs (net %)', owed;
+
+  -- And the whole lot stays inside the tenant.
+  select count(*)::int into n from invoices;
+  if n <> 1 then raise exception 'FAIL: financials saw % invoices, expected 1', n; end if;
+  raise notice 'PASS: financial queries stay inside the tenant';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

@@ -2460,3 +2460,44 @@ begin
     $f$, t);
   end loop;
 end $$;
+
+-- ═══ Part 25 — Task 26: the private storage bucket ═══
+--
+-- Guarded on the storage schema existing, so this file still applies cleanly to
+-- a plain Postgres (which the RLS harness uses) as well as to Supabase.
+--
+-- PRIVATE on purpose. The app never hands out a storage URL: it mints a
+-- short-lived signed URL per request with the service-role key, so a link copied
+-- out of a page stops working in minutes and a leaked path is not a leaked file.
+--
+-- The size limit and MIME allow-list mirror src/lib/storage/storage-core.ts.
+-- Having the rule in both places is deliberate: the app gives a readable error,
+-- and the bucket is the backstop that holds even if a request bypasses the app.
+-- SVG is excluded from both — it is a script delivery vector, not a photo format.
+do $$
+begin
+  if exists (select 1 from information_schema.schemata where schema_name = 'storage') then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values (
+      'project-files',
+      'project-files',
+      false,
+      52428800, -- 50 MB, matching MAX_DOCUMENT_BYTES
+      array[
+        'image/jpeg','image/png','image/webp','image/heic','image/heif',
+        'application/pdf','text/plain','text/csv',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      ]
+    )
+    on conflict (id) do update
+      set public = excluded.public,
+          file_size_limit = excluded.file_size_limit,
+          allowed_mime_types = excluded.allowed_mime_types;
+    raise notice 'storage bucket project-files ready (private)';
+  else
+    raise notice 'no storage schema — skipping bucket creation (not a Supabase database)';
+  end if;
+end $$;
