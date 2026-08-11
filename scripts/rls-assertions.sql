@@ -1654,5 +1654,192 @@ begin
   raise notice 'PASS: financial queries stay inside the tenant';
 end $$;
 
+-- ═══════════════════ Job costing (Task 29) ═══════════════════════════════════
+-- Hours feed every margin in the system, so the database derives them rather
+-- than trusting a caller, and it refuses to let one person be on two shifts at
+-- once. Time is also scoped per-person: someone's hours are their pay.
+reset role;
+insert into expenses (organization_id, project_id, category, description, amount, expense_date)
+  values ('0000000a-0000-4000-8000-000000000001',
+          '000e0aaa-0000-4000-8000-000000000001', 'material', 'Tile', 420.50, current_date),
+         ('0000000b-0000-4000-8000-000000000002',
+          '000e0bbb-0000-4000-8000-000000000002', 'material', 'Other org tile', 99.00, current_date);
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int; derived numeric; entry uuid;
+begin
+  select count(*)::int into n from expenses;
+  if n <> 1 then raise exception 'FAIL: expected 1 expense, saw %', n; end if;
+  raise notice 'PASS: cross-org SELECT isolation (expenses)';
+
+  begin
+    insert into expenses (organization_id, project_id, description, amount, expense_date)
+      values ('0000000b-0000-4000-8000-000000000002',
+              '000e0bbb-0000-4000-8000-000000000002', 'Sneaky', 10, current_date);
+    raise exception 'FAIL: cross-org expense insert was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: cross-org expense insert blocked';
+  end;
+
+  begin
+    insert into expenses (organization_id, project_id, description, amount, expense_date)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001', 'Nothing', 0, current_date);
+    raise exception 'FAIL: a zero-amount expense was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a zero-amount expense is rejected';
+  end;
+
+  begin
+    insert into expenses (organization_id, project_id, description, amount, expense_date)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001', 'Tomorrow', 10, current_date + 1);
+    raise exception 'FAIL: a future-dated expense was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: an expense cannot be dated ahead';
+  end;
+
+  -- A negative amount is a return or a refund, and must be allowed.
+  insert into expenses (organization_id, project_id, description, amount, expense_date)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '000e0aaa-0000-4000-8000-000000000001', 'Returned trim', -35.00, current_date);
+  raise notice 'PASS: a negative expense (a return) is allowed';
+
+  -- Hours are derived, not supplied. The bogus value below is ignored.
+  insert into time_entries
+    (organization_id, user_id, project_id, clock_in, clock_out, break_minutes, hours)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000aaa-0000-4000-8000-000000000001',
+            '000e0aaa-0000-4000-8000-000000000001',
+            '2026-08-05T08:00:00Z', '2026-08-05T16:00:00Z', 30, 999)
+    returning id into entry;
+  select hours into derived from time_entries where id = entry;
+  if derived <> 7.5 then raise exception 'FAIL: derived hours were %, expected 7.5', derived; end if;
+  raise notice 'PASS: hours are derived by the database, not taken from the caller';
+
+  -- An open shift has no total yet.
+  update time_entries set clock_out = null where id = entry;
+  select hours into derived from time_entries where id = entry;
+  if derived is not null then raise exception 'FAIL: an open shift reported % hours', derived; end if;
+  raise notice 'PASS: an open shift has no hours total';
+
+  -- ...and while it is open, a second shift cannot start.
+  begin
+    insert into time_entries (organization_id, user_id, project_id, clock_in)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00000aaa-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001', '2026-08-09T08:00:00Z');
+    raise exception 'FAIL: a second shift during an open one was ALLOWED';
+  exception when exclusion_violation then
+    raise notice 'PASS: an open shift blocks starting another';
+  end;
+
+  update time_entries set clock_out = '2026-08-05T16:00:00Z' where id = entry;
+
+  -- Overlapping a closed shift is refused too.
+  begin
+    insert into time_entries (organization_id, user_id, project_id, clock_in, clock_out)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00000aaa-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001',
+              '2026-08-05T15:00:00Z', '2026-08-05T18:00:00Z');
+    raise exception 'FAIL: an overlapping shift was ALLOWED';
+  exception when exclusion_violation then
+    raise notice 'PASS: overlapping shifts are rejected';
+  end;
+
+  -- Back-to-back is fine: one ends exactly as the next begins.
+  insert into time_entries (organization_id, user_id, project_id, clock_in, clock_out)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000aaa-0000-4000-8000-000000000001',
+            '000e0aaa-0000-4000-8000-000000000001',
+            '2026-08-05T16:00:00Z', '2026-08-05T18:00:00Z');
+  raise notice 'PASS: back-to-back shifts are allowed';
+
+  -- A forgotten clock-out is refused rather than inflating the job's cost.
+  begin
+    insert into time_entries (organization_id, user_id, project_id, clock_in, clock_out)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00000aaa-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001',
+              '2026-08-10T06:00:00Z', '2026-08-11T06:00:00Z');
+    raise exception 'FAIL: a 24-hour shift was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: an implausibly long shift is rejected';
+  end;
+
+  begin
+    insert into time_entries (organization_id, user_id, project_id, clock_in, clock_out)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00000aaa-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001',
+              '2026-08-12T16:00:00Z', '2026-08-12T08:00:00Z');
+    raise exception 'FAIL: a backwards shift was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a backwards shift is rejected';
+  end;
+end $$;
+
+-- Someone else's time is not visible to a plain member: hours are pay.
+reset role;
+insert into users (id, email) values
+  ('00000ccc-0000-4000-8000-000000000003', 'carl@org-a.test')
+  on conflict do nothing;
+insert into organization_members (organization_id, user_id, roles) values
+  ('0000000a-0000-4000-8000-000000000001', '00000ccc-0000-4000-8000-000000000003', '{technician}')
+  on conflict do nothing;
+insert into time_entries (organization_id, user_id, project_id, clock_in, clock_out)
+  values ('0000000a-0000-4000-8000-000000000001',
+          '00000ccc-0000-4000-8000-000000000003',
+          '000e0aaa-0000-4000-8000-000000000001',
+          '2026-08-06T08:00:00Z', '2026-08-06T16:00:00Z');
+
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000ccc-0000-4000-8000-000000000003","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Carl is a technician: he sees his own entry and nobody else's.
+  select count(*)::int into n from time_entries;
+  if n <> 1 then raise exception 'FAIL: technician saw % time entries, expected 1', n; end if;
+  select count(*)::int into n from time_entries
+    where user_id = '00000ccc-0000-4000-8000-000000000003';
+  if n <> 1 then raise exception 'FAIL: technician cannot see their own time'; end if;
+  raise notice 'PASS: a technician sees only their own time entries';
+
+  -- And cannot log time in somebody else's name.
+  begin
+    insert into time_entries (organization_id, user_id, project_id, clock_in)
+      values ('0000000a-0000-4000-8000-000000000001',
+              '00000aaa-0000-4000-8000-000000000001',
+              '000e0aaa-0000-4000-8000-000000000001', '2026-08-20T08:00:00Z');
+    raise exception 'FAIL: logging time for another user was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: a technician cannot log time for someone else';
+  end;
+end $$;
+
+-- The owner, who has to cost jobs and run payroll, sees all of it.
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from time_entries;
+  if n < 3 then raise exception 'FAIL: owner saw only % time entries', n; end if;
+  raise notice 'PASS: an owner sees the whole org''s time (% entries)', n;
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

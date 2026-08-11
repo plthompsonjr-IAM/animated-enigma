@@ -2501,3 +2501,175 @@ begin
     raise notice 'no storage schema — skipping bucket creation (not a Supabase database)';
   end if;
 end $$;
+
+-- ═══ Part 26 — Task 29: job costing (time & expenses) ═══
+--
+-- Hours feed every margin in the system, so the database derives them from the
+-- clock pair rather than trusting a caller, and refuses to let one person be on
+-- two shifts at once.
+
+create extension if not exists btree_gist with schema extensions;
+
+do $$ begin
+  create type time_entry_status as enum ('open','submitted','approved','rejected');
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  create type expense_category as enum
+    ('material','subcontractor','equipment_rental','permit_fee','disposal','fuel_mileage','other');
+exception when duplicate_object then null; end $$;
+
+-- What an hour of someone's time costs the business. Null means their labour is
+-- not costed, which is honest: a made-up rate would quietly poison every margin.
+alter table organization_members
+  add column if not exists hourly_cost_rate numeric(12,2);
+
+create table if not exists time_entries (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  user_id uuid not null references users(id) on delete restrict,
+  project_id uuid references projects(id),
+  task_id uuid references project_tasks(id) on delete set null,
+  clock_in timestamptz,
+  clock_out timestamptz,
+  break_minutes integer not null default 0,
+  hours numeric(12,4),
+  is_manual boolean not null default false,
+  status time_entry_status not null default 'open',
+  corrected_by uuid references users(id),
+  approved_by uuid references users(id),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists expenses (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references organizations(id) on delete restrict,
+  project_id uuid not null references projects(id) on delete cascade,
+  task_id uuid references project_tasks(id) on delete set null,
+  category expense_category not null default 'material',
+  vendor text,
+  description text not null,
+  amount numeric(14,2) not null,
+  expense_date date not null,
+  document_id uuid references documents(id) on delete set null,
+  is_billable boolean not null default false,
+  invoiced_at timestamptz,
+  notes text,
+  created_by uuid references users(id),
+  deleted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists time_entries_user_idx on time_entries (user_id, clock_in);
+create index if not exists time_entries_project_idx on time_entries (project_id, clock_in);
+create index if not exists time_entries_org_idx on time_entries (organization_id, clock_in);
+create index if not exists expenses_project_idx on expenses (project_id, expense_date);
+create index if not exists expenses_org_date_idx on expenses (organization_id, expense_date);
+create index if not exists expenses_category_idx on expenses (organization_id, category);
+
+do $$ begin
+  alter table time_entries add constraint time_entries_break_nonnegative check (break_minutes >= 0);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table time_entries add constraint time_entries_clock_order
+    check (clock_out is null or clock_in is null or clock_out > clock_in);
+exception when duplicate_object then null; end $$;
+
+-- Past 16 hours it's a forgotten clock-out, not a shift, and it would silently
+-- inflate the job's labour cost.
+do $$ begin
+  alter table time_entries add constraint time_entries_shift_length
+    check (clock_out is null or clock_in is null
+           or clock_out <= clock_in + interval '16 hours');
+exception when duplicate_object then null; end $$;
+
+-- One person, one shift at a time. An open shift runs to infinity.
+do $$ begin
+  alter table time_entries add constraint time_entries_no_overlap
+    exclude using gist (
+      user_id with =,
+      tstzrange(clock_in, coalesce(clock_out, 'infinity')) with &&
+    ) where (clock_in is not null and status <> 'rejected');
+exception when duplicate_object then null; end $$;
+
+create or replace function time_entries_derive_hours() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+declare
+  gross interval;
+  net_hours numeric;
+begin
+  if new.clock_in is null or new.clock_out is null then
+    new.hours := null;
+    return new;
+  end if;
+
+  gross := new.clock_out - new.clock_in;
+  net_hours := extract(epoch from gross) / 3600.0
+               - (coalesce(new.break_minutes, 0)::numeric / 60.0);
+  new.hours := greatest(0, round(net_hours, 4));
+  return new;
+end;
+$$;
+
+drop trigger if exists time_entries_hours on time_entries;
+create trigger time_entries_hours
+  before insert or update on time_entries
+  for each row execute function time_entries_derive_hours();
+
+drop trigger if exists time_entries_set_updated_at on time_entries;
+create trigger time_entries_set_updated_at before update on time_entries
+  for each row execute function set_updated_at();
+
+do $$ begin
+  alter table expenses add constraint expenses_amount_nonzero check (amount <> 0);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table expenses add constraint expenses_not_future check (expense_date <= current_date);
+exception when duplicate_object then null; end $$;
+
+drop trigger if exists expenses_set_updated_at on expenses;
+create trigger expenses_set_updated_at before update on expenses
+  for each row execute function set_updated_at();
+
+alter table time_entries enable row level security;
+alter table time_entries force row level security;
+alter table expenses enable row level security;
+alter table expenses force row level security;
+
+drop policy if exists expenses_tenant on expenses;
+create policy expenses_tenant on expenses
+  using (organization_id = current_org() and is_member_of(organization_id))
+  with check (organization_id = current_org() and is_member_of(organization_id));
+
+-- Time is tenant-scoped AND person-scoped: someone's hours are their pay, so a
+-- technician sees only their own. The roles that run payroll and cost jobs see
+-- all of it.
+drop policy if exists time_entries_own_or_privileged on time_entries;
+create policy time_entries_own_or_privileged on time_entries
+  using (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and (
+      user_id = auth.uid()
+      or has_role(organization_id, 'owner')
+      or has_role(organization_id, 'office_manager')
+      or has_role(organization_id, 'project_manager')
+    )
+  )
+  with check (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and (
+      user_id = auth.uid()
+      or has_role(organization_id, 'owner')
+      or has_role(organization_id, 'office_manager')
+      or has_role(organization_id, 'project_manager')
+    )
+  );

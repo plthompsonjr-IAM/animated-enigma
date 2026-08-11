@@ -87,6 +87,13 @@ export const organizationMembers = pgTable(
     /** Owner-granted grants beyond the base roles (permission slugs). */
     extraPermissions: text('extra_permissions').array().notNull().default([]),
     isActive: boolean('is_active').notNull().default(true),
+    /**
+     * What an hour of this person's time costs the business (Task 29) — burdened
+     * cost, not their wage and not what the client is charged. Null means their
+     * labour doesn't get costed, which is honest: a made-up rate would quietly
+     * poison every margin on every job.
+     */
+    hourlyCostRate: numeric('hourly_cost_rate', { precision: 12, scale: 2 }),
     invitedBy: uuid('invited_by').references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1580,6 +1587,108 @@ export const documents = pgTable(
   ],
 );
 
+export const timeEntryStatusEnum = pgEnum('time_entry_status', [
+  'open',
+  'submitted',
+  'approved',
+  'rejected',
+]);
+
+export const expenseCategoryEnum = pgEnum('expense_category', [
+  'material',
+  'subcontractor',
+  'equipment_rental',
+  'permit_fee',
+  'disposal',
+  'fuel_mileage',
+  'other',
+]);
+
+/**
+ * Labour against a job (Task 29). `hours` is derived from the clock pair less
+ * breaks, maintained by a trigger so it can never disagree with the times.
+ *
+ * A GiST exclusion constraint blocks a person having two overlapping shifts —
+ * an open shift runs to infinity, so you can't start a second one while the
+ * first is still going. That's an integrity rule the database holds, not a
+ * check the app is trusted to remember.
+ */
+export const timeEntries = pgTable(
+  'time_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').references(() => projects.id),
+    taskId: uuid('task_id').references(() => projectTasks.id, { onDelete: 'set null' }),
+    clockIn: timestamp('clock_in', { withTimezone: true }),
+    clockOut: timestamp('clock_out', { withTimezone: true }),
+    breakMinutes: integer('break_minutes').notNull().default(0),
+    /** Derived from clock_in/clock_out/break_minutes by a trigger. */
+    hours: numeric('hours', { precision: 12, scale: 4 }),
+    isManual: boolean('is_manual').notNull().default(false),
+    status: timeEntryStatusEnum('status').notNull().default('open'),
+    correctedBy: uuid('corrected_by').references(() => users.id),
+    approvedBy: uuid('approved_by').references(() => users.id),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('time_entries_user_idx').on(table.userId, table.clockIn),
+    index('time_entries_project_idx').on(table.projectId, table.clockIn),
+    index('time_entries_org_idx').on(table.organizationId, table.clockIn),
+  ],
+);
+
+/**
+ * Money spent on a job — materials, subs, rentals, permits, disposal. Together
+ * with time entries this is what makes a real margin possible; without both,
+ * profitability is a projection from the estimate.
+ *
+ * `documentId` links a receipt so a cost is backed by evidence rather than
+ * somebody's memory of a hardware-store run.
+ */
+export const expenses = pgTable(
+  'expenses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id').references(() => projectTasks.id, { onDelete: 'set null' }),
+    category: expenseCategoryEnum('category').notNull().default('material'),
+    vendor: text('vendor'),
+    description: text('description').notNull(),
+    /** Negative is legitimate: a return or a refund. */
+    amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    expenseDate: date('expense_date').notNull(),
+    /** Receipt backing this cost. */
+    documentId: uuid('document_id').references(() => documents.id, { onDelete: 'set null' }),
+    /** Whether this is meant to be passed through to the client. */
+    isBillable: boolean('is_billable').notNull().default(false),
+    /** Set once the cost has been billed on to the client. */
+    invoicedAt: timestamp('invoiced_at', { withTimezone: true }),
+    notes: text('notes'),
+    createdBy: uuid('created_by').references(() => users.id),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('expenses_project_idx').on(table.projectId, table.expenseDate),
+    index('expenses_org_date_idx').on(table.organizationId, table.expenseDate),
+    index('expenses_category_idx').on(table.organizationId, table.category),
+  ],
+);
+
 // deferred self/forward references
 // leads.convertedProjectId → projects.id is wired as a FK in the SQL migration
 // to avoid a Drizzle circular-reference at table-definition time.
@@ -1638,3 +1747,7 @@ export type Photo = typeof photos.$inferSelect;
 export type NewPhoto = typeof photos.$inferInsert;
 export type Document = typeof documents.$inferSelect;
 export type NewDocument = typeof documents.$inferInsert;
+export type TimeEntry = typeof timeEntries.$inferSelect;
+export type NewTimeEntry = typeof timeEntries.$inferInsert;
+export type Expense = typeof expenses.$inferSelect;
+export type NewExpense = typeof expenses.$inferInsert;

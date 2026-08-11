@@ -44,6 +44,14 @@ import { ProjectLogsCard } from '@/components/daily-logs/project-logs-card';
 import { documentsForProject, photosForProject } from '@/lib/media/queries';
 import { isStorageConfigured } from '@/lib/storage/supabase-storage';
 import { ProjectMediaCard } from '@/components/media/project-media-card';
+import {
+  expensesForProject,
+  membersWithoutCostRate,
+  openShiftFor,
+  timeForProject,
+} from '@/lib/costing/queries';
+import { jobCostPosition } from '@/lib/costing/costing-core';
+import { ProjectCostCard } from '@/components/costing/project-cost-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { ProjectStatusBadge, ScheduleHealthText } from '@/components/projects/project-badges';
@@ -108,6 +116,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     'documents:write',
     ctx.activeOrg.extraPermissions,
   );
+  const mayWriteCosts = can(ctx.activeOrg.roles, 'costs:write', ctx.activeOrg.extraPermissions);
 
   const row = await getProject(orgId, id);
   if (!row) notFound();
@@ -135,6 +144,10 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     loggedDates,
     projectPhotos,
     projectDocuments,
+    projectTime,
+    projectExpenses,
+    openShift,
+    uncostedMembers,
   ] = await Promise.all([
     p.propertyId ? getProjectProperty(orgId, p.propertyId) : Promise.resolve(null),
     getProjectTeam(orgId, id),
@@ -153,6 +166,10 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
     loggedDatesForProject(orgId, id),
     mayReadDocuments ? photosForProject(orgId, id) : Promise.resolve([]),
     mayReadDocuments ? documentsForProject(orgId, id) : Promise.resolve([]),
+    showCosts ? timeForProject(orgId, id, true) : Promise.resolve([]),
+    showCosts ? expensesForProject(orgId, id) : Promise.resolve([]),
+    mayWriteTasks && ctx.userId ? openShiftFor(orgId, ctx.userId) : Promise.resolve(null),
+    showCosts ? membersWithoutCostRate(orgId) : Promise.resolve(0),
   ]);
 
   // Narrow the org-wide conflicts down to the ones touching this project's work.
@@ -164,6 +181,26 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
   const archived = Boolean(p.deletedAt);
   const status = p.status as ProjectStatus;
+
+  // Costs are only assembled for someone cleared to see them, and the phase
+  // decides whether the profit figure is a margin or just the gap so far.
+  const costPosition = showCosts
+    ? jobCostPosition({
+        phase: status === 'completed' || status === 'closed' ? 'complete' : 'in_progress',
+        labour: projectTime.map((entry) => ({
+          hours: entry.hours,
+          hourlyCostRate: entry.hourlyCostRate,
+          status: entry.status,
+        })),
+        expenses: projectExpenses.map((expense) => ({
+          amount: expense.amount,
+          category: expense.category,
+        })),
+        contractValue: budget?.revisedValue ?? null,
+        invoiced: budget?.invoiced ?? 0,
+      })
+    : null;
+
   const durationDays = daysBetween(
     p.actualStart ?? p.expectedStart,
     p.actualCompletion ?? p.expectedCompletion,
@@ -326,6 +363,19 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               documents={projectDocuments}
               mayWrite={mayWriteDocuments}
               storageConfigured={isStorageConfigured()}
+            />
+          ) : null}
+
+          {costPosition ? (
+            <ProjectCostCard
+              projectId={p.id}
+              position={costPosition}
+              timeEntries={projectTime}
+              expenses={projectExpenses}
+              openShiftId={openShift?.projectId === p.id ? openShift.id : null}
+              mayLogTime={mayWriteTasks}
+              mayWriteCosts={mayWriteCosts}
+              uncostedMembers={uncostedMembers}
             />
           ) : null}
 

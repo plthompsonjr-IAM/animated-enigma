@@ -288,6 +288,20 @@
       "when": 1785543387680,
       "tag": "0040_media_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786427468094,
+      "tag": "0041_soft_ikaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1786427469094,
+      "tag": "0042_costing_rls",
+      "breakpoints": true
     }
   ]
 }

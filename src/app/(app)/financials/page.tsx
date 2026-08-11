@@ -15,18 +15,21 @@ import {
   openReceivables,
   portfolioTotals,
 } from '@/lib/financials/financials-core';
+import { costLinesByProject, membersWithoutCostRate } from '@/lib/costing/queries';
+import { jobCostPosition, portfolioCost, formatHours } from '@/lib/costing/costing-core';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 export const metadata = { title: 'Financials' };
 
 /**
- * The money screen: receivables aging, who owes what, and billing position per
- * job.
+ * The money screen: receivables aging, who owes what, billing position per job,
+ * and — for anyone cleared to see cost — real margin from logged time and
+ * recorded spend.
  *
- * Note what isn't here — job profitability. Profit needs actual labour and
- * material costs, and neither is tracked yet. A margin derived from the estimate
- * would be a projection presented as a result, so the page says so instead.
+ * The margin headline is computed from *finished* jobs only. A half-built job
+ * has most of its revenue recognised and only some of its cost, so blending it
+ * in produces a number that looks like a margin and behaves like noise.
  */
 export default async function FinancialsPage() {
   const ctx = await getAuthContext();
@@ -52,11 +55,15 @@ export default async function FinancialsPage() {
 
   const orgId = activeOrg.organizationId;
   const thirtyDaysAgo = addDays(today(), -30) ?? today();
+  // Cost and margin are a stricter permission than the money a client is billed.
+  const showCosts = can(activeOrg.roles, 'costs:read', activeOrg.extraPermissions);
 
-  const [invoices, jobs, cash] = await Promise.all([
+  const [invoices, jobs, cash, costLines, uncostedMembers] = await Promise.all([
     invoicesForAging(orgId),
     jobBillingInputs(orgId),
     paymentsReceived(orgId, thirtyDaysAgo),
+    showCosts ? costLinesByProject(orgId) : Promise.resolve(new Map()),
+    showCosts ? membersWithoutCostRate(orgId) : Promise.resolve(0),
   ]);
 
   const receivables = openReceivables(invoices);
@@ -65,6 +72,26 @@ export default async function FinancialsPage() {
   const collection = collectionSummary(invoices);
   const rows = jobBillingRows(jobs);
   const totals = portfolioTotals(rows);
+
+  // A job's margin is only real once it's finished; portfolioCost knows that and
+  // computes the company margin from completed work alone.
+  const positions = showCosts
+    ? rows.map((row) => {
+        const lines = costLines.get(row.projectId) ?? { labour: [], expenses: [] };
+        return {
+          row,
+          position: jobCostPosition({
+            phase:
+              row.status === 'completed' || row.status === 'closed' ? 'complete' : 'in_progress',
+            labour: lines.labour,
+            expenses: lines.expenses,
+            contractValue: row.revisedValue,
+            invoiced: row.invoiced,
+          }),
+        };
+      })
+    : [];
+  const companyCost = showCosts ? portfolioCost(positions.map((p) => p.position)) : null;
 
   const nothing = invoices.length === 0 && jobs.length === 0;
 
@@ -311,14 +338,106 @@ export default async function FinancialsPage() {
             </CardContent>
           </Card>
 
-          <div className="rounded-md border border-border bg-secondary/40 p-3 text-sm">
-            <p className="font-medium">Job profitability isn’t here yet — on purpose.</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Profit needs actual labour hours and material spend, and neither is tracked yet. A
-              margin worked out from the estimate would be a projection dressed up as a result.
-              Everything above comes from the ledger and is what actually happened.
-            </p>
-          </div>
+          {companyCost ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Cost &amp; margin</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <MiniStat label="Labour" value={formatMoney(companyCost.labour)} />
+                  <MiniStat label="Hours logged" value={formatHours(companyCost.labourHours)} />
+                  <MiniStat label="Expenses" value={formatMoney(companyCost.expenses)} />
+                  <MiniStat label="Total cost" value={formatMoney(companyCost.total)} />
+                </div>
+
+                <div className="rounded-md border-2 border-primary/30 bg-primary/5 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                      Margin on completed jobs
+                    </span>
+                    <span className="text-2xl font-bold tabular-nums">
+                      {formatPercent(companyCost.completedMarginPercent)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {companyCost.completedRevenue > 0
+                      ? `${formatMoney(companyCost.completedRevenue)} of finished work at ${formatMoney(companyCost.completedCost)} cost.`
+                      : 'No finished jobs yet, so there is no settled margin to report.'}{' '}
+                    Running jobs are excluded on purpose — a half-built job flatters the number and
+                    then takes it back.
+                  </p>
+                </div>
+
+                {uncostedMembers > 0 ? (
+                  <p className="rounded-md bg-secondary/50 px-3 py-2 text-xs text-muted-foreground">
+                    {uncostedMembers} active {uncostedMembers === 1 ? 'person has' : 'people have'}{' '}
+                    no hourly cost rate, so their hours aren’t costed. Until that’s set, labour cost
+                    — and every margin here — is understated.
+                  </p>
+                ) : null}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-1.5 pr-2 font-medium">Job</th>
+                        <th className="py-1.5 pr-2 text-right font-medium">Cost</th>
+                        <th className="py-1.5 pr-2 text-right font-medium">Spent</th>
+                        <th className="py-1.5 pr-2 text-right font-medium">Billed</th>
+                        <th className="py-1.5 text-right font-medium">Gap</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {positions.map(({ row, position }) => (
+                        <tr key={row.projectId} className="border-b last:border-0">
+                          <td className="py-1.5 pr-2">
+                            <Link
+                              href={`/projects/${row.projectId}`}
+                              className="font-medium hover:underline"
+                            >
+                              {row.projectNumber ?? row.projectName ?? 'Project'}
+                            </Link>
+                            <div className="text-xs text-muted-foreground">
+                              {position.phase === 'complete' ? 'Finished' : 'Running'}
+                              {position.spendingAheadOfBilling ? ' · spending ahead of billing' : ''}
+                            </div>
+                          </td>
+                          <td className="py-1.5 pr-2 text-right tabular-nums">
+                            {formatMoney(position.cost.total)}
+                          </td>
+                          <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
+                            {formatPercent(position.spentPercent)}
+                          </td>
+                          <td className="py-1.5 pr-2 text-right tabular-nums text-muted-foreground">
+                            {formatPercent(position.billedPercent)}
+                          </td>
+                          <td
+                            className={cn(
+                              'py-1.5 text-right tabular-nums',
+                              (position.grossProfit ?? 0) < 0
+                                ? 'font-medium text-red-600 dark:text-red-400'
+                                : '',
+                            )}
+                          >
+                            {position.grossProfit === null
+                              ? '—'
+                              : formatMoney(position.grossProfit)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="text-xs text-muted-foreground">
+                  &ldquo;Gap&rdquo; is contract value less cost. On a finished job that is the
+                  actual gross profit; on a running one it is only the gap so far, and costs still
+                  to come will move it.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
         </>
       )}
     </div>
