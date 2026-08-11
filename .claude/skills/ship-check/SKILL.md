@@ -8,6 +8,21 @@ description: Use before committing or reporting completion on any change to PT's
 Two rules govern this file. **Run the gate before claiming anything.** And
 **claim only what the gate actually proved.**
 
+## This is enforced, not just advised
+
+`.claude/hooks/verify-evidence.sh` runs on every `Stop`. If the turn changed
+anything under `src/`, it runs typecheck, lint, and the unit tests; if it changed
+`drizzle/` or a `.sql` script, it also runs the RLS suite. A failure **blocks the
+turn from ending** and hands the error back.
+
+So the numbers in your report are not yours to estimate — the hook prints the
+real ones (`Test Files 31 passed (31); Tests 584 passed (584)`). Quote those.
+
+It skips silently when a turn only touched docs or config, and it stamps a
+passing tree so a second stop on the same state is free. `pnpm build` is
+deliberately outside it — minutes long, and typecheck catches nearly all of what
+it would — so run the build yourself as part of the gate below.
+
 ## The gate
 
 ```bash
