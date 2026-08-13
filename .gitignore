@@ -1,13 +1,50 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+
+# production
+/build
+
+# testing
+/coverage
+
+# env files
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# os / editor
+.DS_Store
+*.pem
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# drizzle
+# drizzle meta is committed (migration journal)
+
+# legacy python app (archived under legacy/)
 __pycache__/
 *.pyc
 *.pyo
 *.db
 *.sqlite3
-.env
-.env.*
-!.env.example
-static/uploads/*
-!static/uploads/.gitkeep
 .venv/
 venv/
 backups/
+legacy/**/static/uploads/*
+!legacy/**/static/uploads/.gitkeep
+
+# ts incremental build info
+tsconfig.tsbuildinfo
