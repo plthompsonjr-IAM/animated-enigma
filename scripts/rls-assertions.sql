@@ -1841,5 +1841,118 @@ begin
   raise notice 'PASS: an owner sees the whole org''s time (% entries)', n;
 end $$;
 
+-- ═══════════════════ AI Foreman briefing (Task 30) ═══════════════════════════
+-- The briefing reads one job across schedule, tasks, logs, invoices, change
+-- orders, time and expenses. Every one of those is a raw aggregate, and the unit
+-- tests never touch a database, so the shapes run here against the real schema.
+-- What is asserted is that they execute and stay tenant-scoped; the judgement
+-- built on top of them is unit-tested.
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare
+  proj uuid := '000e0aaa-0000-4000-8000-000000000001';
+  n int; m int; started date; ended date; w numeric; e numeric; v numeric;
+begin
+  -- Schedule position: span, overdue count, and span-weighted earned progress.
+  select count(*)::int,
+         count(*) filter (
+           where status not in ('complete','canceled') and end_date < current_date
+         )::int,
+         min(start_date), max(end_date),
+         coalesce(sum(end_date - start_date + 1) filter (where status <> 'canceled'), 0),
+         coalesce(sum((end_date - start_date + 1)
+           * case when status = 'complete' then 100
+                  else coalesce(percent_complete, 0) end / 100.0)
+           filter (where status <> 'canceled'), 0)
+    into n, m, started, ended, w, e
+    from schedule_items where project_id = proj;
+  raise notice 'PASS: briefing schedule query runs (% items, % late, weight %, earned %)',
+    n, m, w, e;
+
+  -- Open, overdue and blocked field work for the one job.
+  select count(*)::int,
+         count(*) filter (where due_date < current_date)::int,
+         count(*) filter (where exists (
+           select 1 from task_dependencies d
+           join project_tasks p on p.id = d.depends_on_task_id
+           where d.task_id = t.id and p.status <> 'completed' and p.deleted_at is null
+         ))::int
+    into n, m, v
+    from project_tasks t
+   where t.project_id = proj and t.deleted_at is null and t.status <> 'completed';
+  raise notice 'PASS: briefing task query runs (% open, % overdue, % blocked)', n, m, v;
+
+  select count(*)::int into n from daily_logs where project_id = proj;
+  raise notice 'PASS: briefing daily-log query runs (% logs)', n;
+
+  -- Billing position: issued totals, receipts, and what is past due.
+  select coalesce(sum(total) filter (where status <> 'draft'), 0),
+         coalesce(sum(amount_paid) filter (where status <> 'draft'), 0),
+         count(*) filter (
+           where status not in ('draft','paid','void') and due_date < current_date
+         )::int
+    into w, e, n
+    from invoices where project_id = proj;
+  raise notice 'PASS: briefing invoice query runs (% invoiced, % paid, % overdue)', w, e, n;
+
+  -- Contract value plus approved extras, and the extras never billed. Approved
+  -- and incorporated both count, matching countsTowardContract.
+  select (select c.contract_value from contracts c
+           where c.project_id = proj and c.status = 'active'
+           order by c.created_at desc limit 1),
+         coalesce(sum(co.cost_change) filter (
+           where co.status in ('approved','incorporated')), 0),
+         count(*) filter (
+           where co.status in ('approved','incorporated')
+             and not exists (
+               select 1 from invoices i
+               where i.change_order_id = co.id and i.status <> 'draft'
+             ))::int
+    into v, w, n
+    from change_orders co where co.project_id = proj;
+  raise notice 'PASS: briefing change-order query runs (value %, approved %, % unbilled)',
+    v, w, n;
+
+  -- Labour, with each person's rate pulled from their membership.
+  select count(*)::int into n from (
+    select sum(t.hours) as hours, t.status,
+           (select m2.hourly_cost_rate from organization_members m2
+             where m2.user_id = t.user_id and m2.organization_id = t.organization_id)
+      from time_entries t
+     where t.project_id = proj
+     group by t.status, t.user_id, t.organization_id
+  ) lines;
+  raise notice 'PASS: briefing labour query runs (% cost lines)', n;
+
+  -- People on this job with no rate set: their hours cost zero, which flatters
+  -- every margin, so the briefing has to be able to count them.
+  select count(distinct t.user_id)::int into n
+    from time_entries t
+   where t.project_id = proj
+     and not exists (
+       select 1 from organization_members m
+       where m.user_id = t.user_id and m.organization_id = t.organization_id
+         and m.hourly_cost_rate is not null
+     );
+  raise notice 'PASS: briefing uncosted-labour query runs (% people)', n;
+
+  select count(*)::int into n from expenses
+   where project_id = proj and deleted_at is null;
+  raise notice 'PASS: briefing expense query runs (% expenses)', n;
+
+  -- And the whole briefing stays inside the tenant: org B's job is not briefable
+  -- from here, so a guessed project id returns nothing rather than another
+  -- contractor's numbers.
+  select count(*)::int into n from projects where deleted_at is null;
+  if n <> 1 then
+    raise exception 'FAIL: briefing project list saw % projects, expected 1', n;
+  end if;
+  raise notice 'PASS: briefing project list stays inside the tenant';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

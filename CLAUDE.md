@@ -3,7 +3,7 @@
 An AI-powered general contractor command system for **PT's Tactical Renovations**
 (PTTR) — *"Your Home, Our Mission."* Owner: Patrick Thompson.
 
-Built as 50 controlled tasks across 13 phases. Tasks 1–29 are complete and live.
+Built as 50 controlled tasks across 13 phases. Tasks 1–30 are complete and live.
 
 ---
 
@@ -141,10 +141,10 @@ scripts/                            RLS harness, setup script, verifiers
 docs/                               PRD, architecture, full 50-table schema
 ```
 
-Domains built: `auth` `catalog` `change-orders` `clients` `contracts` `costing`
-`daily-logs` `dashboard` `estimates` `financials` `intake` `invoices` `leads`
-`media` `projects` `proposals` `schedule` `scopes` `signatures` `site-visits`
-`storage` `tasks`
+Domains built: `ai-foreman` `auth` `catalog` `change-orders` `clients` `contracts`
+`costing` `daily-logs` `dashboard` `estimates` `financials` `intake` `invoices`
+`leads` `media` `projects` `proposals` `schedule` `scopes` `signatures`
+`site-visits` `storage` `tasks`
 
 ---
 
@@ -260,11 +260,27 @@ Not "Warning: incomplete data." Not "Invalid range."
 
 ## Current state
 
-- **584 unit tests** across 31 files
-- **160 real-Postgres RLS assertions**
+- **666 unit tests** across 33 files
+- **169 real-Postgres RLS assertions**
 - **47 tables**, all `ENABLE` + `FORCE` RLS
 - Migrations through `0043` applied to the live project and verified
 - Security advisor: three pre-existing WARNs on `has_role` / `is_member_of` /
   `org_has_members` from Task 6. Known, unrelated. Anything else is new and yours.
 
-Remaining placeholder: `/ai-foreman`.
+**No placeholder screens remain.** Every one of the twelve nav sections is built.
+
+`src/components/section-placeholder.tsx` is now unused — `/ai-foreman` was its last
+caller. Left in place rather than deleted; it costs nothing and is the obvious
+component to reach for if a screen ever needs stubbing again.
+
+### The AI Foreman is deterministic, and deliberately so
+
+`ANTHROPIC_API_KEY` is unset, and `providerStatus()` makes the screen say so
+instead of implying a model is thinking. The briefing is assembled from the job
+record by pure functions — same job, same day, same words — which is what makes
+it safe to read to a client.
+
+When a key is added, the model does **not** take over the numbers. `briefingText()`
+is the context packet; the model's job is phrasing and open questions, and every
+output stays a draft a person approves. `costs:read` and `financials:read` gate at
+the query, so a partial briefing says it is partial rather than implying all-clear.
