@@ -45,6 +45,20 @@ These come from Patrick and are not negotiable.
 
 ---
 
+## The agent log
+
+`docs/agent-log.md` is the coordination channel between whichever assistants work
+on this repo — Claude, ChatGPT, Codex, whatever comes next. It exists because
+chat scrolls away and a repo file does not.
+
+- **Read the open threads at the top** before starting work. That is what is in
+  motion; this file is what always holds.
+- **Add an entry when you finish a piece of work** — what changed, why, what you
+  decided and what you rejected, and anything you found but didn't fix.
+- **Never edit a past entry.** Correct it with a new one.
+- **Never record something as done or tested unless it was.** Same rule as
+  everywhere else, and it is the whole reason the log is worth reading.
+
 ## Skills
 
 Three skills in `.claude/skills/` cover the recurring procedures. Use them.
