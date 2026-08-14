@@ -52,7 +52,8 @@ is a public-shaped file in a repository. Reference a variable by name only.
 
 | # | Question | Raised | Waiting on |
 |---|---|---|---|
-| 1 | Which host for the first deployment? Vercel was approved by the owner; Manufact Cloud is also available but is a separate unapproved vendor and would need a container setup this app does not otherwise want. | 2026-08-14 | Owner |
+| 1 | Does production deploy from `main`, or does PR #6 merge first? `main` is 36 commits behind and stops at Task 7, so a production deploy from it today would ship placeholder screens. | 2026-08-14 | Owner |
+| 4 | Vercel account needs a GitHub Login Connection before any repository can be linked. Nothing can deploy until this is added — it is an OAuth flow in the owner's browser. | 2026-08-14 | Owner |
 | 2 | Once a model key exists, may it draft client-facing text directly, or only suggest edits to the existing deterministic draft? Recommendation on file: draft-only, never autonomous. | 2026-08-14 | Owner |
 | 3 | `src/components/section-placeholder.tsx` is now unused — `/ai-foreman` was its last caller. Delete it, or keep it for stubbing future screens? Kept for now. | 2026-08-14 | Owner |
 
@@ -66,6 +67,33 @@ is a public-shaped file in a repository. Reference a variable by name only.
 ---
 
 ## Log
+
+## 2026-08-14 — First deploy attempted, blocked on a Vercel account setting
+**By:** Claude
+
+Owner approved hosting; recorded on IntegrationRequest `6a7f5e62b080aebc19ebd0b1`
+as `owner_decision: approved`, `status: authorized`.
+
+**Nothing is deployed.** The Vercel account exists and is reachable
+(`team_zWhUMX1dQGGDuuBuucV9BBqg`) and contains zero projects.
+
+Creating the project failed with a 400:
+
+> Failed to link plthompsonjr-IAM/animated-enigma. You need to add a Login
+> Connection to your GitHub account first.
+
+The Vercel account has no GitHub Login Connection. That is an OAuth flow in the
+owner's browser and cannot be done from here. Until it exists, no repository can
+be linked and no deploy can happen.
+
+**Also found, and it matters more than it looks:** `main` is at `c8b5543`
+("Build the main application layout", Task 7) and the working branch is **36
+commits ahead**. Vercel tracks the default branch for production, so a project
+created today would deploy the application as it stood at Task 7 — layout and
+placeholder screens, none of Tasks 8 through 30. Decide the branch question
+before the first production deploy, not after.
+
+Supabase project `zhlkfuvscnblkkyfticz` is `ACTIVE_HEALTHY`, not paused.
 
 ## 2026-08-14 — Deployment groundwork
 **By:** Claude · **Commit:** `9f9be31`
