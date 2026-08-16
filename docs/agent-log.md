@@ -68,6 +68,40 @@ is a public-shaped file in a repository. Reference a variable by name only.
 
 ## Log
 
+## 2026-08-16 — First deploy: linked, failed, and why
+**By:** Claude · **Commit:** `792f95f`
+
+Both blockers from the 08-14 attempt were cleared by the owner (GitHub Login
+Connection, then the Vercel GitHub App installed on the repo). The project
+**tactical-foreman** (`prj_RYGvZVCZpbZKMEvY50thibUKaPip`) is now linked, created
+with `deploy: false` so the first build would come from this branch rather than
+`main`'s stale Task 7 state. An empty commit pushed to trigger it.
+
+**The build failed.** Confirmed via Vercel's own commit status (`state: failure`)
+and its PR #6 bot comment — not guessed at. The cause the owner reported from the
+Vercel dashboard: `next@15.1.6` is flagged as a known vulnerable version.
+
+That is real, not a false positive: **CVE-2025-29927**, the middleware
+authorization-bypass vulnerability — a spoofed `x-middleware-subrequest` header
+makes Next.js skip middleware execution entirely. This app gates every protected
+route through `src/middleware.ts`, so this was live exposure, not theoretical.
+Fixed upstream in 15.2.3 and patched since; upgraded to the latest published 15.x
+(15.5.23) rather than jumping to 16, to take every fix issued since 15.1.6
+without a major-version migration under deploy pressure. `eslint-config-next`
+moved with it. Typecheck, 666 tests, and the production build all clean
+afterward; no application code needed to change.
+
+**Also noted while reading tool output, not acted on:** my Vercel read tools
+(`get_deployment`, `list_deployments`, `list_projects`) failed with 403/404
+throughout this attempt, even immediately after a write to the same project
+succeeded. Coincided with the Vercel team being renamed mid-session
+(`patthompson-2694's projects` → `Tac System`, same team id). Build status was
+only confirmed through the GitHub webhook events Vercel posted to PR #6, not
+through direct API reads. If this recurs, that is where to look first.
+
+**Not yet known:** whether the retriggered build (pushed as part of this commit)
+succeeds. Check the next PR #6 status before assuming it does.
+
 ## 2026-08-14 — First deploy attempted, blocked on a Vercel account setting
 **By:** Claude
 
