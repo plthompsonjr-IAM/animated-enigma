@@ -28,10 +28,11 @@ describe('buildBreadcrumbs', () => {
 });
 
 describe('quick-create catalog', () => {
-  it('contains the eight Task 7 actions', () => {
-    expect(QUICK_CREATE_ITEMS).toHaveLength(8);
+  it('contains the quick-create actions', () => {
+    expect(QUICK_CREATE_ITEMS).toHaveLength(9);
     const labels = QUICK_CREATE_ITEMS.map((i) => i.label);
     for (const expected of [
+      'Quick intake',
       'New lead',
       'New client',
       'New project',

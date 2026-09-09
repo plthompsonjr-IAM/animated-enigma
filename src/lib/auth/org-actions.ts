@@ -18,6 +18,9 @@ import {
   isInvitationExpired,
 } from './invitations';
 import type { FormState } from './actions';
+import { inviteEmail } from '@/lib/email/email-core';
+import { dispatchEmail } from '@/lib/email/dispatch';
+import { NO_PROVIDER_MESSAGE } from '@/lib/email/provider';
 
 export interface InviteState extends FormState {
   inviteUrl?: string;
@@ -138,30 +141,38 @@ export async function inviteMember(_prev: InviteState, formData: FormData): Prom
 
   const inviteUrl = `${publicEnv.appUrl}/invite/${token}`;
 
-  // Email delivery activates with a Resend key; the link is always returned so
-  // the inviter can share it directly in the meantime.
-  const resendKey = process.env.RESEND_API_KEY;
-  if (resendKey) {
-    try {
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: process.env.EMAIL_FROM ?? 'no-reply@example.com',
-          to: [email.data],
-          subject: `You're invited to ${ctx.activeOrg.organizationName} on PT's Tactical Foreman`,
-          text: `You've been invited to join ${ctx.activeOrg.organizationName}. Accept here: ${inviteUrl}\n\nThis link expires in 7 days.`,
-        }),
-      });
-    } catch (error) {
-      logger.warn('org: invitation email send failed', {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  // Delivery goes through the email seam — the inviter's Google account if
+  // connected, the company sending address if configured, otherwise nothing.
+  // The link is always returned so the inviter can share it directly whatever
+  // happens here; a failed send is reported, never swallowed.
+  const message = inviteEmail({
+    orgName: ctx.activeOrg.organizationName,
+    inviteUrl,
+    expiresInDays: 7,
+  });
+  message.to = [email.data];
+  const sent = await dispatchEmail({
+    organizationId: ctx.activeOrg.organizationId,
+    userId: ctx.userId!,
+    senderName: ctx.activeOrg.organizationName,
+    kind: 'invitation',
+    relatedId: null,
+    projectId: null,
+    clientId: null,
+    message,
+  });
 
   revalidatePath('/settings/team');
-  return { message: `Invitation created for ${email.data}.`, inviteUrl };
+  if (sent.ok) {
+    return { message: `Invitation emailed to ${email.data}.`, inviteUrl };
+  }
+  if (sent.error === NO_PROVIDER_MESSAGE) {
+    return { message: `Invitation created for ${email.data}. Share the link below.`, inviteUrl };
+  }
+  return {
+    message: `Invitation created for ${email.data}, but the email didn’t send: ${sent.error} Share the link below instead.`,
+    inviteUrl,
+  };
 }
 
 export async function acceptInvitation(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -299,4 +310,63 @@ export async function updateMemberRoles(_prev: FormState, formData: FormData): P
 
   revalidatePath('/settings/team');
   return { message: 'Roles updated.' };
+}
+
+const orgSettingsSchema = z.object({
+  name: z.string().trim().min(2, 'Company name is required.').max(200),
+  tagline: z.string().trim().max(200).optional(),
+  timezone: z.string().trim().min(1).max(64),
+  signatureDisclosure: z.string().trim().max(5000).optional(),
+  contractTerms: z.string().trim().max(50000).optional(),
+});
+
+/**
+ * Organization settings: branding, timezone, and the two legal texts the
+ * client-facing documents depend on — the e-signature disclosure (Task 19) and
+ * the contract terms & conditions (Task 20). Blank values fall back to the
+ * built-in defaults rather than producing an empty clause.
+ */
+export async function updateOrganizationSettings(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  const ctx = await getAuthContext();
+  if (!ctx.userId) redirect('/login');
+  if (!ctx.dbAvailable || !ctx.activeOrg) {
+    return { error: 'Database or organization is not configured yet.' };
+  }
+  try {
+    assertCan(ctx.activeOrg.roles, 'org:manage', ctx.activeOrg.extraPermissions);
+  } catch {
+    return { error: 'You do not have permission to change organization settings.' };
+  }
+
+  const parsed = orgSettingsSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? 'Please check the form.' };
+  }
+  const { name, tagline, timezone, signatureDisclosure, contractTerms } = parsed.data;
+
+  try {
+    const db = getDb();
+    await db
+      .update(schema.organizations)
+      .set({
+        name,
+        tagline: tagline && tagline.length > 0 ? tagline : null,
+        timezone,
+        signatureDisclosure:
+          signatureDisclosure && signatureDisclosure.length > 0 ? signatureDisclosure : null,
+        contractTerms: contractTerms && contractTerms.length > 0 ? contractTerms : null,
+      })
+      .where(eq(schema.organizations.id, ctx.activeOrg.organizationId));
+  } catch (error) {
+    logger.error('org: settings update failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return { error: 'Something went wrong saving your settings.' };
+  }
+
+  revalidatePath('/settings');
+  return { message: 'Settings saved.' };
 }

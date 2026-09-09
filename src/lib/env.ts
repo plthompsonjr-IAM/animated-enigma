@@ -16,6 +16,13 @@ const serverSchema = z.object({
   AI_MODEL_DEFAULT: z.string().default('claude-opus-4-8'),
   AI_MODEL_FAST: z.string().default('claude-haiku-4-5'),
   RESEND_API_KEY: z.string().optional(),
+  // Google Workspace (Task 31). All optional: with any absent, the Connect
+  // button says what is missing and nothing sends or syncs.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  /** 32 random bytes, base64. Encrypts stored refresh tokens app-side. */
+  GOOGLE_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
