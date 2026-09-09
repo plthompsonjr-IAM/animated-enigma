@@ -6,13 +6,25 @@ import { getDb, schema } from '@/db';
 import { getAuthContext } from '@/lib/auth/session';
 import { can } from '@/lib/auth/rbac';
 import { resolveTerms, unresolvedBlanks } from '@/lib/contracts/terms-core';
+import { connectionSummary, providerStatus } from '@/lib/google/google-core';
+import { ownConnection } from '@/lib/google/queries';
+import { googleEnv } from '@/lib/google/tokens';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
+import { GoogleConnectionCard } from '@/components/settings/google-connection';
 import { SettingsForm } from './settings-form';
 
 export const metadata = { title: 'Settings' };
 
-export default async function SettingsPage() {
+interface SearchParams {
+  google?: string;
+}
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const ctx = await getAuthContext();
   if (ctx.configured && !ctx.userId) redirect('/login');
   if (!ctx.configured || !ctx.dbAvailable || !ctx.activeOrg) {
@@ -29,26 +41,31 @@ export default async function SettingsPage() {
 
   const { activeOrg } = ctx;
   const mayManage = can(activeOrg.roles, 'org:manage', activeOrg.extraPermissions);
+  const sp = await searchParams;
 
-  const [org] = await getDb()
-    .select({
-      name: schema.organizations.name,
-      tagline: schema.organizations.tagline,
-      timezone: schema.organizations.timezone,
-      signatureDisclosure: schema.organizations.signatureDisclosure,
-      contractTerms: schema.organizations.contractTerms,
-    })
-    .from(schema.organizations)
-    .where(eq(schema.organizations.id, activeOrg.organizationId));
+  const [[org], connection] = await Promise.all([
+    getDb()
+      .select({
+        name: schema.organizations.name,
+        tagline: schema.organizations.tagline,
+        timezone: schema.organizations.timezone,
+        signatureDisclosure: schema.organizations.signatureDisclosure,
+        contractTerms: schema.organizations.contractTerms,
+      })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, activeOrg.organizationId)),
+    ownConnection(activeOrg.organizationId, ctx.userId!),
+  ]);
 
   const blanks = unresolvedBlanks(resolveTerms(org?.contractTerms));
+  const google = providerStatus(googleEnv());
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Company branding and the legal text used on your client documents.
+          Company branding, connected accounts, and the legal text used on your client documents.
         </p>
       </div>
 
@@ -66,6 +83,13 @@ export default async function SettingsPage() {
           </p>
         </CardContent>
       </Card>
+
+      <GoogleConnectionCard
+        status={google}
+        connection={connection ? connectionSummary(connection) : null}
+        mayConnect={mayManage}
+        notice={sp.google}
+      />
 
       <Card>
         <CardHeader>

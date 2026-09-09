@@ -1696,6 +1696,47 @@ export const expenses = pgTable(
 // proposals.current_version_id → proposal_versions.id likewise.
 // schedule_items.depends_on_id → schedule_items.id likewise (self-reference).
 
+/**
+ * A member's Google Workspace connection (Task 31): the credential that lets
+ * the app send email as them and place events on their calendar.
+ *
+ * One row per person per organization. A connection is personal — granted on a
+ * consent screen that named them — and it is theirs alone to revoke. The refresh
+ * token is stored only as app-side AES-GCM ciphertext; the key lives in the
+ * host's environment and never in this database, so a dump of this table yields
+ * nothing usable. `revokedAt` is set rather than the row deleted, so "when did
+ * this stop working" always has an answer.
+ *
+ * The user FK cascades where every other FK in this file restricts: an orphaned
+ * credential is the one thing worse than a deleted one.
+ */
+export const googleConnections = pgTable(
+  'google_connections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** The Google account that consented — may differ from the app login email. */
+    googleEmail: text('google_email').notNull(),
+    /** Exactly what Google granted, filtered to the scopes we asked for. Never empty. */
+    scopes: text('scopes').array().notNull(),
+    /** `v1.<iv>.<tag>.<ciphertext>` — see google-core.ts. Never plaintext. */
+    refreshTokenCiphertext: text('refresh_token_ciphertext').notNull(),
+    connectedAt: timestamp('connected_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('google_connections_org_user_idx').on(table.organizationId, table.userId),
+    index('google_connections_user_idx').on(table.userId),
+  ],
+);
+
 export type Client = typeof clients.$inferSelect;
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type Property = typeof properties.$inferSelect;
@@ -1751,3 +1792,5 @@ export type TimeEntry = typeof timeEntries.$inferSelect;
 export type NewTimeEntry = typeof timeEntries.$inferInsert;
 export type Expense = typeof expenses.$inferSelect;
 export type NewExpense = typeof expenses.$inferInsert;
+export type GoogleConnection = typeof googleConnections.$inferSelect;
+export type NewGoogleConnection = typeof googleConnections.$inferInsert;

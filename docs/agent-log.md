@@ -53,7 +53,8 @@ is a public-shaped file in a repository. Reference a variable by name only.
 | # | Question | Raised | Waiting on |
 |---|---|---|---|
 | 1 | Does production deploy from `main`, or does PR #6 merge first? `main` is 36 commits behind and stops at Task 7, so a production deploy from it today would ship placeholder screens. | 2026-08-14 | Owner |
-| 4 | Vercel account needs a GitHub Login Connection before any repository can be linked. Nothing can deploy until this is added — it is an OAuth flow in the owner's browser. | 2026-08-14 | Owner |
+| 5 | A Google Cloud OAuth client has to exist before anyone can connect Google: enable the Gmail and Calendar APIs, configure the consent screen, create a Web-application client, register the deployed callback URL exactly, set four `GOOGLE_*` variables on the host. Steps in `docs/deployment.md`. Owner's browser, roughly fifteen minutes, once. | 2026-09-09 | Owner |
+| 6 | The Vercel project still has no environment variables, so the deployed URL serves the unconfigured shell. Until they are set, nothing built since Task 8 — including Google — can be exercised by a human. | 2026-08-16 | Owner |
 | 2 | Once a model key exists, may it draft client-facing text directly, or only suggest edits to the existing deterministic draft? Recommendation on file: draft-only, never autonomous. | 2026-08-14 | Owner |
 | 3 | `src/components/section-placeholder.tsx` is now unused — `/ai-foreman` was its last caller. Delete it, or keep it for stubbing future screens? Kept for now. | 2026-08-14 | Owner |
 
@@ -63,10 +64,82 @@ is a public-shaped file in a repository. Reference a variable by name only.
 |---|---|---|
 | Does the Foreman belong in the TAC ecosystem? | Yes. Registered as a CapabilityRegistry entry under the PTTR venture, whose description was corrected from real-estate portfolio management to contracting. | 2026-08-14 |
 | Anthropic or OpenAI for the AI Foreman? | Anthropic, matching the code as written. The pending OpenAI request serves TAC-BRIDGE's own agents, not this application. | 2026-08-14 |
+| Vercel account needs a GitHub Login Connection (was thread 4). | Owner added the Login Connection and installed the Vercel GitHub App on the repo. Project `tactical-foreman` linked; first build failed on a vulnerable Next.js, fixed by upgrading to 15.5.23; second build `Ready`. | 2026-08-16 |
+| Move to Google Workspace? | Add it, don't migrate to it. Google Workspace does not host applications. Gmail send and Calendar sync are being built on Vercel + Supabase as they stand. Supabase Storage stays; Drive not adopted. | 2026-09-09 |
 
 ---
 
 ## Log
+
+## 2026-09-09 — Task 31: Google Workspace connection (OAuth + token custody)
+**By:** Claude
+
+The seam every Google feature hangs off. A member connects the Google account
+they run the business from; the app stores an encrypted refresh token and can
+mint short-lived access tokens from it. Nothing sends or syncs yet — that is
+Tasks 32 and 33 — but the credential path is built, proven, and live.
+
+**Shape** (`domain-slice`, pure core first): `src/lib/google/google-core.ts`
+(scopes, consent URL, CSRF state, AES-256-GCM token encryption, provider status,
+connection summary), `tokens.ts` (the only place a refresh token is ever
+decrypted; refresh + revoke), `queries.ts` (own row with ciphertext; team view
+without it), `actions.ts` (disconnect), two routes under
+`src/app/api/auth/google/`, a Settings card, and the Settings page rewired.
+Env: four `GOOGLE_*` variables, all optional, all named on screen when missing.
+
+**Decisions, stated so they can be reversed:**
+- Scopes are `gmail.send` and `calendar.events` only. Never the inbox. The
+  consent screen is the whole permission story.
+- Refresh tokens are encrypted app-side before they reach Postgres; the key is
+  `GOOGLE_TOKEN_ENCRYPTION_KEY` in the host environment. `parseEncryptionKey`
+  refuses anything but exactly 32 bytes rather than hashing a bad key into shape.
+- Only the person themselves may write their row; owners and office managers
+  may *see* who is connected via a separate read-only policy with no `with
+  check`. The team query never selects the ciphertext column. RLS decides rows,
+  queries decide columns — both hold independently.
+- Connect is gated on `org:manage` for now: the owner connects first. Loosening
+  it to any member is one line in the start route; the database already
+  guarantees each person can only store their own.
+- Plain `fetch` to Google's endpoints. No `googleapis` SDK.
+- A connection granting zero scopes is refused by a CHECK, not just by code.
+- `invalid_grant` on refresh marks the row revoked, so the card stops claiming a
+  connection Google has already withdrawn.
+
+**Verified (measured):**
+- 34 unit tests over the core — round-trip, tamper detection in every segment,
+  wrong key, wrong format, key parsing, state matching, scope filtering,
+  consent-URL parameters. Suite now **700 tests / 34 files**.
+- 11 new assertions on real Postgres, **180 total**: own-row insert allowed;
+  owner inserting for someone else refused; empty scopes refused; revoked-before-
+  connected refused; one per person; non-admin sees only own; cannot revoke
+  another's (0 rows, not an error); can revoke own; owner sees the team; owner
+  cannot alter another's; other org sees nothing.
+- `scripts/test-setup-sql.sh`: 48 tables, all ENABLE + FORCE.
+- Typecheck, lint (zero warnings), production build — both API routes compile.
+- Runtime smoke on the production server, unauthenticated: `/api/auth/google`
+  → `/login?next=/settings`; callback with `error=` → `/settings?google=denied`;
+  callback with a code but no session → login; `/settings` renders its
+  unconfigured shell.
+- **Live:** project was `INACTIVE` (auto-paused over the three-week gap).
+  Restored; took about eight minutes through `COMING_UP` → `RESTORING` →
+  `ACTIVE_HEALTHY`. Applied `0043_absent_radioactive_man` and
+  `0044_google_rls`. Verified on the live database: `google_connections`
+  enabled, forced, 2 policies, 1 trigger, 3 checks, 2 FKs; 48 public tables,
+  **zero** without both ENABLE and FORCE; 67 policies. Security advisor: only
+  the three pre-existing WARNs from Task 6 (`has_role`, `is_member_of`,
+  `org_has_members`). Nothing new.
+
+**Not verified — do not report as working:** no Google Cloud OAuth client
+exists yet, so no real consent has ever been granted, the callback has never
+received a real code, and the refresh path has never called Google. Everything
+above proves the plumbing against itself and against Postgres; it does not
+prove it against Google. That needs the owner to create the OAuth client
+(`docs/deployment.md`, "Google Workspace") and click Connect on the deployed
+URL — which in turn still needs the Vercel environment variables set.
+
+**Closing a loose end from 08-16:** that entry ended "not yet known whether the
+retriggered build succeeds." It did — Vercel reported `Ready` for both
+deployments minutes later. The preview URL served the unconfigured shell.
 
 ## 2026-09-09 — Container re-provisioned onto the wrong tree; nothing lost
 **By:** Claude

@@ -81,6 +81,9 @@ environment. None of them belong in the repository.
 |---|---|
 | `ANTHROPIC_API_KEY` | Model-assisted drafting in the AI Foreman. Without it the briefing still works; it is assembled from the job record by fixed rules. |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Sending client links. No sending module is written yet, so setting these alone does nothing today. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Sending email as, and syncing calendar to, a connected Google account. See **Google Workspace** below. Off until all four Google variables exist; the Settings card names which are missing. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | `https://<deployed host>/api/auth/google/callback`. Must match the OAuth client to the character. |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored refresh tokens app-side; the database never holds one in the clear. |
 | `DB_POOL_MAX` | Overrides the connection cap. Leave unset — production defaults to 1, which is what serverless wants. |
 
 ---
@@ -131,6 +134,42 @@ Also worth a look on day one:
 - [ ] Check that money is hidden for a role without `financials:read`.
 
 ---
+
+## Google Workspace (optional)
+
+Lets the app send email as a connected Google account and place site visits on
+its calendar. Entirely off until all four `GOOGLE_*` variables exist, and the
+Settings card says which are missing rather than failing quietly.
+
+This is the one piece of Google Cloud Console this deployment cannot avoid. It
+is a one-time click-through, about fifteen minutes.
+
+1. **Create a project and enable two APIs** — APIs & Services → Library →
+   enable **Gmail API** and **Google Calendar API**. Without both, the consent
+   screen refuses the scopes and the callback lands on `noscopes`.
+2. **Configure the consent screen.** The app asks for exactly `gmail.send` and
+   `calendar.events` — nothing that reads mail. While the screen is in
+   *Testing*, add every Google account that will connect as a test user; move
+   it to *Production* before the crew needs it.
+3. **Create an OAuth client** — Credentials → Create credentials → OAuth client
+   ID → *Web application*. Under Authorised redirect URIs add, exactly:
+
+   ```
+   https://<your deployed host>/api/auth/google/callback
+   ```
+
+   Scheme and host to the character. This is the Google-side twin of the
+   Supabase redirect allow-list, with the same failure when it's wrong:
+   Google shows `redirect_uri_mismatch` and nothing reaches the app.
+4. **Generate the token key:** `openssl rand -base64 32`. Rotating it later
+   invalidates every stored connection; people reconnect once.
+5. **Set the four variables** on the host and redeploy. Then, signed in as the
+   owner: Settings → Google Workspace → **Connect Google**. The consent screen
+   should list two permissions and no more.
+
+Each member connects their own account; nobody's token is shared, and an owner
+can see who is connected but cannot use or alter anyone else's connection. That
+rule is enforced by row-level security, not just by the interface.
 
 ## If it goes wrong
 

@@ -1954,5 +1954,163 @@ begin
   raise notice 'PASS: briefing project list stays inside the tenant';
 end $$;
 
+-- ═══════════════════ Google connections (Task 31) ════════════════════════════
+-- A row holds an encrypted refresh token — a credential that can send mail as
+-- its owner. The rules proven here: only the person themselves may create or
+-- alter their connection; an owner may see who is connected but write nothing;
+-- other organisations see nothing; and the database refuses a connection that
+-- grants no scopes or is revoked before it began.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Permitted path: Alice connects her own Google account.
+  insert into google_connections
+    (id, organization_id, user_id, google_email, scopes, refresh_token_ciphertext)
+  values ('000c0aaa-0000-4000-8000-000000000001',
+          '0000000a-0000-4000-8000-000000000001',
+          '00000aaa-0000-4000-8000-000000000001',
+          'alice@org-a.test',
+          array['https://www.googleapis.com/auth/gmail.send',
+                'https://www.googleapis.com/auth/calendar.events'],
+          'v1.aaaa.bbbb.cccc');
+  raise notice 'PASS: a member can store their own Google connection';
+
+  -- Even the owner cannot create a connection in someone else's name.
+  begin
+    insert into google_connections
+      (organization_id, user_id, google_email, scopes, refresh_token_ciphertext)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000ccc-0000-4000-8000-000000000003',
+            'carl@org-a.test',
+            array['https://www.googleapis.com/auth/gmail.send'],
+            'v1.x.y.z');
+    raise exception 'FAIL: owner stored a connection for another user — was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: nobody can store a Google connection for someone else, not even an owner';
+  end;
+
+  -- No scopes, no connection.
+  begin
+    insert into google_connections
+      (organization_id, user_id, google_email, scopes, refresh_token_ciphertext)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000aaa-0000-4000-8000-000000000001',
+            'alice-two@org-a.test', '{}', 'v1.x.y.z');
+    raise exception 'FAIL: a connection with no granted scopes was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a Google connection granting no scopes is refused';
+  when unique_violation then
+    raise exception 'FAIL: uniqueness fired before the scopes check — test ordering is wrong';
+  end;
+
+  -- Cannot be revoked before it was connected.
+  begin
+    update google_connections
+       set revoked_at = connected_at - interval '1 hour'
+     where id = '000c0aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: revoked_at earlier than connected_at was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a connection cannot be revoked before it began';
+  end;
+
+  -- One connection per person per organisation.
+  begin
+    insert into google_connections
+      (organization_id, user_id, google_email, scopes, refresh_token_ciphertext)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000aaa-0000-4000-8000-000000000001',
+            'alice-again@org-a.test',
+            array['https://www.googleapis.com/auth/gmail.send'], 'v1.x.y.z');
+    raise exception 'FAIL: a second connection for the same person was ALLOWED';
+  exception when unique_violation then
+    raise notice 'PASS: one Google connection per person per organisation';
+  end;
+end $$;
+
+-- Carl (Org A, not an administrator) connects his own and sees only his own.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000ccc-0000-4000-8000-000000000003","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  insert into google_connections
+    (id, organization_id, user_id, google_email, scopes, refresh_token_ciphertext)
+  values ('000c0ccc-0000-4000-8000-000000000003',
+          '0000000a-0000-4000-8000-000000000001',
+          '00000ccc-0000-4000-8000-000000000003',
+          'carl@org-a.test',
+          array['https://www.googleapis.com/auth/calendar.events'],
+          'v1.cccc.dddd.eeee');
+
+  select count(*)::int into n from google_connections;
+  if n <> 1 then raise exception 'FAIL: non-admin saw % Google connections, expected only their own', n; end if;
+  select count(*)::int into n from google_connections
+    where user_id = '00000ccc-0000-4000-8000-000000000003';
+  if n <> 1 then raise exception 'FAIL: a member cannot see their own Google connection'; end if;
+  raise notice 'PASS: a non-administrator sees only their own Google connection';
+
+  -- Carl "revoking" Alice's connection touches nothing — the row is invisible
+  -- to him, so the update matches zero rows rather than erroring.
+  update google_connections set revoked_at = now()
+    where id = '000c0aaa-0000-4000-8000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: a member altered someone else''s connection (% rows)', n; end if;
+  raise notice 'PASS: a member cannot revoke anyone else''s Google connection';
+
+  -- Permitted path: revoking one's own.
+  update google_connections set revoked_at = now()
+    where id = '000c0ccc-0000-4000-8000-000000000003';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL: a member could not revoke their own connection'; end if;
+  raise notice 'PASS: a member can revoke their own Google connection';
+end $$;
+
+-- Alice (owner) sees the whole team's connections — but the admin policy is
+-- read-only, so she still cannot touch Carl's row.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from google_connections;
+  if n <> 2 then raise exception 'FAIL: owner saw % Google connections, expected 2', n; end if;
+  raise notice 'PASS: an owner can see which team members have connected Google';
+
+  update google_connections set google_email = 'hijacked@evil.test'
+    where id = '000c0ccc-0000-4000-8000-000000000003';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: owner modified another member''s connection (% rows)', n; end if;
+  raise notice 'PASS: the administrator view of Google connections is read-only';
+end $$;
+
+-- Another organisation sees nothing at all.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000bbb-0000-4000-8000-000000000002","org":"0000000b-0000-4000-8000-000000000002"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from google_connections;
+  if n <> 0 then raise exception 'FAIL: another organisation saw % Google connections', n; end if;
+  raise notice 'PASS: Google connections are invisible across organisations';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

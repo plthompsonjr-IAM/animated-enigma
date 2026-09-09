@@ -59,6 +59,30 @@ chat scrolls away and a repo file does not.
 - **Never record something as done or tested unless it was.** Same rule as
   everywhere else, and it is the whole reason the log is worth reading.
 
+## External services go behind a seam
+
+Route handlers, server actions, and components never call a vendor API
+directly. Each external service lives under `src/lib/<service>/` with the same
+shape as every other domain — a pure `<service>-core.ts` holding every decision
+that can be tested without a network, and one module that owns the I/O.
+`google/` is the model: `google-core.ts` (scopes, URL building, CSRF state,
+token encryption), `tokens.ts` (the only place a refresh token is ever
+decrypted), `queries.ts`, `actions.ts`, and the two routes under
+`src/app/api/auth/google/`.
+
+Two rules that follow from it:
+
+- **A credential that outlives a request is encrypted app-side before it
+  reaches the database.** The key lives in the host's environment. A dump of the
+  table yields ciphertext. `parseEncryptionKey` refuses anything that isn't
+  exactly 32 bytes rather than hashing a bad key into shape.
+- **When a feature is off, the screen says which variable is missing.**
+  `providerStatus()` — the AI Foreman's pattern, now the Google one too. A
+  button that quietly does nothing teaches people the feature is broken.
+
+Email (Task 32) and calendar (Task 33) build on this seam behind interfaces, so a
+vendor swap is configuration, not a rewrite.
+
 ## Skills
 
 Three skills in `.claude/skills/` cover the recurring procedures. Use them.
@@ -156,7 +180,7 @@ docs/                               PRD, architecture, full 50-table schema
 ```
 
 Domains built: `ai-foreman` `auth` `catalog` `change-orders` `clients` `contracts`
-`costing` `daily-logs` `dashboard` `estimates` `financials` `intake` `invoices`
+`costing` `daily-logs` `dashboard` `estimates` `financials` `google` `intake` `invoices`
 `leads` `media` `projects` `proposals` `schedule` `scopes` `signatures`
 `site-visits` `storage` `tasks`
 

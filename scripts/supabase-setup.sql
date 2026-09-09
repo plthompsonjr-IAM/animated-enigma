@@ -2673,3 +2673,92 @@ create policy time_entries_own_or_privileged on time_entries
       or has_role(organization_id, 'project_manager')
     )
   );
+
+-- ═══ Part 27 — Task 31: Google Workspace connections ═══
+-- One row per person per organization: the encrypted refresh token that lets
+-- the app send email as them and place events on their calendar. Ciphertext is
+-- app-side AES-GCM; the key lives only in the host environment, never here.
+-- Scoped tighter than the tenant boundary: only the person themselves may
+-- write their row; owners and office managers may see who is connected.
+
+create table if not exists google_connections (
+  id uuid primary key default gen_random_uuid() not null,
+  organization_id uuid not null,
+  user_id uuid not null,
+  google_email text not null,
+  scopes text[] not null,
+  refresh_token_ciphertext text not null,
+  connected_at timestamptz default now() not null,
+  revoked_at timestamptz,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
+
+do $$ begin
+  alter table google_connections
+    add constraint google_connections_organization_id_organizations_id_fk
+    foreign key (organization_id) references organizations(id) on delete restrict;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table google_connections
+    add constraint google_connections_user_id_users_id_fk
+    foreign key (user_id) references users(id) on delete cascade;
+exception when duplicate_object then null; end $$;
+
+create unique index if not exists google_connections_org_user_idx
+  on google_connections (organization_id, user_id);
+create index if not exists google_connections_user_idx
+  on google_connections (user_id);
+
+do $$ begin
+  alter table google_connections
+    add constraint google_connections_has_scopes
+    check (coalesce(array_length(scopes, 1), 0) > 0);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table google_connections
+    add constraint google_connections_email_present
+    check (char_length(google_email) > 0);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table google_connections
+    add constraint google_connections_revoked_after_connected
+    check (revoked_at is null or revoked_at >= connected_at);
+exception when duplicate_object then null; end $$;
+
+drop trigger if exists google_connections_set_updated_at on google_connections;
+create trigger google_connections_set_updated_at before update on google_connections
+  for each row execute function set_updated_at();
+
+alter table google_connections enable row level security;
+alter table google_connections force row level security;
+
+drop policy if exists google_connections_own on google_connections;
+create policy google_connections_own on google_connections
+  using (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and user_id = auth.uid()
+  )
+  with check (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and user_id = auth.uid()
+  );
+
+-- Read-only for administrators: no `with check`, so no write path to anyone
+-- else's row.
+drop policy if exists google_connections_admin_read on google_connections;
+create policy google_connections_admin_read on google_connections
+  for select
+  using (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and (
+      has_role(organization_id, 'owner')
+      or has_role(organization_id, 'office_manager')
+    )
+  );
