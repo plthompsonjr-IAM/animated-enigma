@@ -68,6 +68,41 @@ is a public-shaped file in a repository. Reference a variable by name only.
 
 ## Log
 
+## 2026-09-09 — Container re-provisioned onto the wrong tree; nothing lost
+**By:** Claude
+
+After three weeks idle the container was reclaimed and re-cloned. It came back
+checked out from `claude/app-project-toxbs4` (tip `de24136`, a merge of `main` at
+Task 7) with the designated branch name pointed at *that* tree, never having
+fetched the real branch. Reflog showed exactly two checkouts, both from `de24136`.
+The working tree had 2 migrations, no `src/lib/storage/`, and 2 domains.
+
+**Verified against GitHub before believing any of it:** branch tip `531bde6`,
+40 commits, PR #6 open with `mergeable_state: clean`, `drizzle/` at that tip
+carrying 43 files. Not a force-push, not data loss — a bad clone.
+
+An Explore agent run against the local tree confidently reported Task-7-era
+facts (2 migrations, storage unimplemented, 9 RLS assertions) and was discarded.
+Lesson recorded in the hook below: **a count is the cheapest lie detector there is.**
+
+**Fix:** `git fetch` + `git reset --hard origin/<branch>` on a clean tree.
+Verified afterward: 43 migrations, `src/lib/storage/` present,
+`scripts/supabase-setup.sql` present, 24 domains, Next 15.5.23, typecheck and
+lint clean, **666 tests / 33 files** — measured, not recalled.
+
+**Hardened:** `.claude/hooks/session-state.sh` now prints `⚠ TREE LOOKS WRONG`
+when it counts fewer than 40 migrations, with the fetch-and-compare command.
+Proven both ways: silent on the real tree, fires on a scratch repo with two.
+
+**Also confirmed today:** the Vercel hosting IntegrationRequest
+(`6a7f5e62b080aebc19ebd0b1`) is `owner_decision: approved`, `status: active`.
+Owner asked to approve it again; it already was.
+
+**Decision taken:** Google Workspace is being *added* (Gmail send, Calendar sync),
+not migrated to. Drivers named by the owner: setup pain, fewer vendors, lock-in —
+answered in the plan rather than assumed. Supabase Storage stays; Drive not
+adopted. Per-user OAuth, owner first. Plain `fetch`, no `googleapis` SDK.
+
 ## 2026-08-16 — First deploy: linked, failed, and why
 **By:** Claude · **Commit:** `792f95f`
 

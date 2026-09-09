@@ -41,6 +41,15 @@ if [ "$unpushed" != "0" ]; then
 fi
 lines+=("working:     ${state:-clean, everything pushed}")
 lines+=("migrations:  $migration_count files, latest $latest_migration")
+# A re-provisioned container once cloned the wrong base branch and pointed the
+# designated branch name at a Task-7-era tree with 2 migrations. The count is the
+# cheapest tell there is, so refuse to let it pass quietly.
+if [ "${migration_count:-0}" -lt 40 ]; then
+  lines+=("")
+  lines+=("⚠ TREE LOOKS WRONG: only $migration_count migrations here; the real branch carries 43+.")
+  lines+=("  Do not build on this. First: git fetch origin $DESIGNATED")
+  lines+=("  then compare: git log --oneline -1 origin/$DESIGNATED")
+fi
 lines+=("")
 lines+=("Blocked on Patrick: cost rates per person (margins are meaningless until set);")
 lines+=("email delivery (needs an API key); attorney review of the contract terms.")
