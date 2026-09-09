@@ -18,6 +18,9 @@ import {
   isInvitationExpired,
 } from './invitations';
 import type { FormState } from './actions';
+import { inviteEmail } from '@/lib/email/email-core';
+import { dispatchEmail } from '@/lib/email/dispatch';
+import { NO_PROVIDER_MESSAGE } from '@/lib/email/provider';
 
 export interface InviteState extends FormState {
   inviteUrl?: string;
@@ -138,30 +141,38 @@ export async function inviteMember(_prev: InviteState, formData: FormData): Prom
 
   const inviteUrl = `${publicEnv.appUrl}/invite/${token}`;
 
-  // Email delivery activates with a Resend key; the link is always returned so
-  // the inviter can share it directly in the meantime.
-  const resendKey = process.env.RESEND_API_KEY;
-  if (resendKey) {
-    try {
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: process.env.EMAIL_FROM ?? 'no-reply@example.com',
-          to: [email.data],
-          subject: `You're invited to ${ctx.activeOrg.organizationName} on PT's Tactical Foreman`,
-          text: `You've been invited to join ${ctx.activeOrg.organizationName}. Accept here: ${inviteUrl}\n\nThis link expires in 7 days.`,
-        }),
-      });
-    } catch (error) {
-      logger.warn('org: invitation email send failed', {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+  // Delivery goes through the email seam — the inviter's Google account if
+  // connected, the company sending address if configured, otherwise nothing.
+  // The link is always returned so the inviter can share it directly whatever
+  // happens here; a failed send is reported, never swallowed.
+  const message = inviteEmail({
+    orgName: ctx.activeOrg.organizationName,
+    inviteUrl,
+    expiresInDays: 7,
+  });
+  message.to = [email.data];
+  const sent = await dispatchEmail({
+    organizationId: ctx.activeOrg.organizationId,
+    userId: ctx.userId!,
+    senderName: ctx.activeOrg.organizationName,
+    kind: 'invitation',
+    relatedId: null,
+    projectId: null,
+    clientId: null,
+    message,
+  });
 
   revalidatePath('/settings/team');
-  return { message: `Invitation created for ${email.data}.`, inviteUrl };
+  if (sent.ok) {
+    return { message: `Invitation emailed to ${email.data}.`, inviteUrl };
+  }
+  if (sent.error === NO_PROVIDER_MESSAGE) {
+    return { message: `Invitation created for ${email.data}. Share the link below.`, inviteUrl };
+  }
+  return {
+    message: `Invitation created for ${email.data}, but the email didn’t send: ${sent.error} Share the link below instead.`,
+    inviteUrl,
+  };
 }
 
 export async function acceptInvitation(_prev: FormState, formData: FormData): Promise<FormState> {

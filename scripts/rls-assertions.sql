@@ -2112,5 +2112,142 @@ begin
   raise notice 'PASS: Google connections are invisible across organisations';
 end $$;
 
+-- ═══════════════════ Email log (Task 32) ═════════════════════════════════════
+-- "Did the client get the invoice, and when" is only worth answering if the
+-- answer cannot be rewritten. Proven here: an attempt can be recorded; a row
+-- must be honest about its own outcome; nothing can be updated or deleted by
+-- any role; other organisations see nothing.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Permitted path: a successful send is recorded.
+  insert into email_log
+    (id, organization_id, sent_by, kind, related_id, provider, provider_message_id,
+     from_address, to_addresses, subject, status, sent_at)
+  values ('000e0aaa-0000-4000-8000-000000000001',
+          '0000000a-0000-4000-8000-000000000001',
+          '00000aaa-0000-4000-8000-000000000001',
+          'proposal', '00000000-0000-4000-8000-000000000001', 'gmail', 'gm-1',
+          'alice@org-a.test', array['client@example.test'],
+          'Proposal PRO-1 from Org A', 'sent', now());
+  raise notice 'PASS: a sent email is recorded';
+
+  -- A failure is recorded too, with its reason.
+  insert into email_log
+    (organization_id, sent_by, kind, provider, from_address, to_addresses, subject,
+     status, error)
+  values ('0000000a-0000-4000-8000-000000000001',
+          '00000aaa-0000-4000-8000-000000000001',
+          'invoice', 'resend', 'no-reply@org-a.test', array['client@example.test'],
+          'Invoice INV-1', 'failed', 'Gmail refused the message.');
+  raise notice 'PASS: a failed attempt is recorded with its reason';
+
+  -- A "sent" row without a timestamp is a guess; refused.
+  begin
+    insert into email_log
+      (organization_id, kind, provider, from_address, to_addresses, subject, status)
+    values ('0000000a-0000-4000-8000-000000000001', 'invoice', 'gmail',
+            'a@org-a.test', array['c@example.test'], 'x', 'sent');
+    raise exception 'FAIL: a sent row with no sent_at was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a sent row must say when';
+  end;
+
+  -- A "failed" row without a reason is equally a guess; refused.
+  begin
+    insert into email_log
+      (organization_id, kind, provider, from_address, to_addresses, subject, status)
+    values ('0000000a-0000-4000-8000-000000000001', 'invoice', 'gmail',
+            'a@org-a.test', array['c@example.test'], 'x', 'failed');
+    raise exception 'FAIL: a failed row with no error was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a failed row must say why';
+  end;
+
+  -- Unknown kinds, providers, and statuses are refused.
+  begin
+    insert into email_log
+      (organization_id, kind, provider, from_address, to_addresses, subject, status, sent_at)
+    values ('0000000a-0000-4000-8000-000000000001', 'newsletter', 'gmail',
+            'a@org-a.test', array['c@example.test'], 'x', 'sent', now());
+    raise exception 'FAIL: an unknown email kind was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: an email of unknown kind is refused';
+  end;
+
+  -- Nobody to send to is not an email.
+  begin
+    insert into email_log
+      (organization_id, kind, provider, from_address, to_addresses, subject, status, sent_at)
+    values ('0000000a-0000-4000-8000-000000000001', 'invoice', 'gmail',
+            'a@org-a.test', '{}', 'x', 'sent', now());
+    raise exception 'FAIL: an email with no recipients was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: an email with no recipients is refused';
+  end;
+
+  -- Append-only: the record of a send cannot be altered afterward.
+  begin
+    update email_log set status = 'failed', error = 'rewritten'
+      where id = '000e0aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: updating an email log row was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: an email log row cannot be updated';
+  end;
+
+  begin
+    delete from email_log where id = '000e0aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: deleting an email log row was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: an email log row cannot be deleted';
+  end;
+
+  select count(*)::int into n from email_log;
+  if n <> 2 then raise exception 'FAIL: expected 2 email log rows, saw %', n; end if;
+end $$;
+
+-- The append-only rule holds for the table owner too — the role the app
+-- actually connects as, which bypasses RLS entirely.
+reset role;
+do $$
+begin
+  begin
+    delete from email_log where id = '000e0aaa-0000-4000-8000-000000000001';
+    raise exception 'FAIL: the owning role deleted an email log row — was ALLOWED';
+  exception when restrict_violation then
+    raise notice 'PASS: even the app''s own role cannot delete an email log row';
+  end;
+end $$;
+
+-- Another organisation sees nothing and can write nothing.
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000bbb-0000-4000-8000-000000000002","org":"0000000b-0000-4000-8000-000000000002"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from email_log;
+  if n <> 0 then raise exception 'FAIL: another organisation saw % email log rows', n; end if;
+  raise notice 'PASS: the email log is invisible across organisations';
+
+  begin
+    insert into email_log
+      (organization_id, kind, provider, from_address, to_addresses, subject, status, sent_at)
+    values ('0000000a-0000-4000-8000-000000000001', 'invoice', 'gmail',
+            'bob@org-b.test', array['c@example.test'], 'x', 'sent', now());
+    raise exception 'FAIL: writing into another organisation''s email log was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: nobody can write into another organisation''s email log';
+  end;
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

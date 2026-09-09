@@ -21,9 +21,11 @@ import {
   type PaymentMethod,
 } from '@/lib/invoices/invoices-core';
 import { toNum } from '@/lib/catalog/catalog-core';
+import { lastEmailFor, recipientForClient } from '@/lib/email/queries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { InvoiceStatusBadge } from '@/components/invoices/invoice-status-badge';
+import { EmailToClient } from '@/components/email/email-to-client';
 import { InvoiceForm } from './invoice-form';
 import { PaymentForm } from './payment-form';
 
@@ -56,6 +58,14 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     dueDate: invoice.dueDate,
   });
   const editable = isEditable(stored);
+
+  // Only an issued invoice is worth emailing: its amounts are locked. A draft's
+  // can still change, so the Status card's "Issue invoice" stays the gate.
+  const maySend = mayWrite && !editable && stored !== 'void';
+  const [recipient, lastSent] = await Promise.all([
+    maySend ? recipientForClient(orgId, invoice.clientId) : Promise.resolve(null),
+    maySend ? lastEmailFor(orgId, 'invoice', invoice.id) : Promise.resolve(null),
+  ]);
 
   const lines: InvoiceLineInput[] = row.lines.map((l) => ({
     description: l.description,
@@ -144,6 +154,26 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
           {invoice.notes ? <p className="text-sm">{invoice.notes}</p> : null}
         </CardContent>
       </Card>
+
+      {maySend ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Send to client</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Emails the amount, due date, line items and payment instructions. There is no
+              client link for an invoice — the email carries everything.
+            </p>
+            <EmailToClient
+              kind="invoice"
+              id={invoice.id}
+              recipient={recipient ? { name: recipient.name, email: recipient.email } : null}
+              lastSent={lastSent}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>

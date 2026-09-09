@@ -197,7 +197,11 @@ don't rename them in place — and there is nothing to undo.
 
 Stated so nobody reads a green deploy as a finished product:
 
-- **No email is sent.** Every client link is still copy-and-paste.
+- **Email sends only once a provider exists.** With a Google account connected
+  (Settings → Google Workspace) mail leaves from that address; with
+  `RESEND_API_KEY` and `EMAIL_FROM` set it leaves from the company address;
+  with neither, every send button says so and the copy-link path remains.
+  Nothing has been sent from this deployment yet.
 - **No payment processing.** Payments are recorded by hand.
 - **The contract terms have not had attorney review.** The Ohio right-to-cancel
   wording is a placeholder and the app warns while bracketed blanks remain.

@@ -11,6 +11,7 @@ import {
   type ProposalSnapshot,
   type ProposalStatus,
 } from '@/lib/proposals/proposal-core';
+import { lastEmailFor, recipientForProject } from '@/lib/email/queries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { contractForProposal } from '@/lib/contracts/queries';
@@ -18,6 +19,7 @@ import { createContractFromProposal } from '@/lib/contracts/actions';
 import { ProposalStatusBadge } from '@/components/proposals/proposal-status-badge';
 import { ProposalDocument } from '@/components/proposals/proposal-document';
 import { ApprovalRecord } from '@/components/proposals/approval-record';
+import { EmailToClient } from '@/components/email/email-to-client';
 import { CopyProposalLink, MarkSentForm, RegenerateButton } from './proposal-actions';
 
 export const metadata = { title: 'Proposal' };
@@ -51,14 +53,24 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
     ctx.activeOrg.extraPermissions,
   );
 
-  const [events, signature, contract] = await Promise.all([
+  const [events, signature, contract, recipient, lastSent] = await Promise.all([
     getProposalEvents(orgId, version.id),
     signatureForVersion(orgId, version.id),
     contractForProposal(orgId, proposal.id),
+    mayWrite ? recipientForProject(orgId, proposal.projectId) : Promise.resolve(null),
+    mayWrite ? lastEmailFor(orgId, 'proposal', proposal.id) : Promise.resolve(null),
   ]);
   // The raw share token is stashed on the version's creation/new-version event.
   const tokenEvent = events.find((e) => (e.metadata as { token?: string } | null)?.token);
   const token = (tokenEvent?.metadata as { token?: string } | null)?.token ?? null;
+
+  // Emailing sends what a person already decided to send. Until it's marked
+  // sent the link isn't live, so the button says so instead of sending a dead link.
+  const emailDisabledReason = !isLive(status)
+    ? 'Mark it as sent first — that’s what makes the client link live.'
+    : !token
+      ? 'No share link yet. Regenerate from the estimate, then send.'
+      : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -94,6 +106,13 @@ export default async function ProposalDetailPage({ params }: { params: Promise<{
               — no login required.
             </p>
             {token ? <CopyProposalLink token={token} /> : null}
+            <EmailToClient
+              kind="proposal"
+              id={proposal.id}
+              recipient={recipient ? { name: recipient.name, email: recipient.email } : null}
+              lastSent={lastSent}
+              disabledReason={emailDisabledReason}
+            />
             <div className="flex flex-wrap items-center gap-3 border-t pt-3">
               {status === 'draft' ? <MarkSentForm proposalId={proposal.id} /> : null}
               {!isLive(status) && status !== 'draft' ? (

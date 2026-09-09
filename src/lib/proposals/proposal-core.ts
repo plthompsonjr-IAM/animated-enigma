@@ -65,6 +65,7 @@ export function isExpired(expiresAt: string | Date | null, now: Date = new Date(
 export const PROPOSAL_EVENT_LABELS: Record<string, string> = {
   created: 'Created',
   sent: 'Sent to client',
+  emailed: 'Emailed to client',
   viewed: 'Viewed by client',
   accepted: 'Accepted',
   declined: 'Declined',

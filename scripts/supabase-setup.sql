@@ -2762,3 +2762,107 @@ create policy google_connections_admin_read on google_connections
       or has_role(organization_id, 'office_manager')
     )
   );
+
+-- ═══ Part 28 — Task 32: email log ═══
+-- What was emailed, to whom, by which provider, and whether it left. Metadata
+-- only, never the body. Append-only for every role including the app's own.
+
+create table if not exists email_log (
+  id uuid primary key default gen_random_uuid() not null,
+  organization_id uuid not null,
+  project_id uuid,
+  client_id uuid,
+  sent_by uuid,
+  kind text not null,
+  related_id uuid,
+  provider text not null,
+  provider_message_id text,
+  from_address text not null,
+  to_addresses text[] not null,
+  subject text not null,
+  status text not null,
+  error text,
+  sent_at timestamptz,
+  created_at timestamptz default now() not null
+);
+
+do $$ begin
+  alter table email_log
+    add constraint email_log_organization_id_organizations_id_fk
+    foreign key (organization_id) references organizations(id) on delete restrict;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log
+    add constraint email_log_project_id_projects_id_fk
+    foreign key (project_id) references projects(id) on delete set null;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log
+    add constraint email_log_client_id_clients_id_fk
+    foreign key (client_id) references clients(id) on delete set null;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log
+    add constraint email_log_sent_by_users_id_fk
+    foreign key (sent_by) references users(id) on delete set null;
+exception when duplicate_object then null; end $$;
+
+create index if not exists email_log_org_created_idx on email_log (organization_id, created_at);
+create index if not exists email_log_related_idx on email_log (kind, related_id);
+
+create or replace function email_log_append_only() returns trigger
+  language plpgsql
+  set search_path = ''
+as $$
+begin
+  raise exception 'email_log is append-only: % is not permitted', tg_op
+    using errcode = 'restrict_violation';
+end;
+$$;
+
+drop trigger if exists email_log_no_update on email_log;
+create trigger email_log_no_update before update on email_log
+  for each row execute function email_log_append_only();
+
+drop trigger if exists email_log_no_delete on email_log;
+create trigger email_log_no_delete before delete on email_log
+  for each row execute function email_log_append_only();
+
+do $$ begin
+  alter table email_log add constraint email_log_kind_known
+    check (kind in ('invitation', 'proposal', 'change_order', 'invoice'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log add constraint email_log_provider_known
+    check (provider in ('gmail', 'resend'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log add constraint email_log_status_known
+    check (status in ('sent', 'failed'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log add constraint email_log_has_recipient
+    check (coalesce(array_length(to_addresses, 1), 0) > 0);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table email_log add constraint email_log_outcome_consistent
+    check (
+      (status = 'sent' and sent_at is not null)
+      or (status = 'failed' and error is not null)
+    );
+exception when duplicate_object then null; end $$;
+
+alter table email_log enable row level security;
+alter table email_log force row level security;
+
+drop policy if exists email_log_tenant on email_log;
+create policy email_log_tenant on email_log
+  using (organization_id = current_org() and is_member_of(organization_id))
+  with check (organization_id = current_org() and is_member_of(organization_id));

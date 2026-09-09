@@ -180,7 +180,7 @@ docs/                               PRD, architecture, full 50-table schema
 ```
 
 Domains built: `ai-foreman` `auth` `catalog` `change-orders` `clients` `contracts`
-`costing` `daily-logs` `dashboard` `estimates` `financials` `google` `intake` `invoices`
+`costing` `daily-logs` `dashboard` `email` `estimates` `financials` `google` `intake` `invoices`
 `leads` `media` `projects` `proposals` `schedule` `scopes` `signatures`
 `site-visits` `storage` `tasks`
 

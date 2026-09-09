@@ -71,6 +71,78 @@ is a public-shaped file in a repository. Reference a variable by name only.
 
 ## Log
 
+## 2026-09-09 — Task 32: email behind a provider seam; the copy-paste gap closes
+**By:** Claude
+
+The gap PR #6 had called "the largest functional gap in the product": every
+client link was generated correctly and then copy-pasted by hand. Now a person
+can press **Email to client** on a proposal, a change order, or an invoice, and
+an invitation goes out the same way. Nothing sends by itself; a person looks at
+the recipient and presses.
+
+**Shape** (`domain-slice`): `src/lib/email/email-core.ts` (templates as pure
+functions of plain values, RFC 2822 raw encoding for Gmail, header-injection
+resistance, recipient validation), `provider.ts` (the `EmailProvider` seam and
+the resolution order), `gmail.ts` and `resend.ts` (one vendor each),
+`dispatch.ts` (send + log; **not** a server action — see below), `queries.ts`
+(recipient lookup, last-sent, newest share token), `actions.ts` (the gated
+server action), and `src/components/email/email-to-client.tsx`. Three detail
+pages rewired; `inviteMember`'s inline Resend call replaced by the seam.
+
+**Decisions, stated so they can be reversed:**
+- **Resolution order:** a connected Google account first (mail leaves from the
+  business's real address and replies land where the owner reads), Resend
+  second, and with neither every send button says so and offers copy-link.
+- **Emailing never changes a document's status.** A proposal must already be
+  marked sent (that is what makes its link live); a change order must already
+  have an approval link; an invoice must already be issued (amounts locked).
+  The button is disabled with the reason until then. The gates people already
+  click stay the gates.
+- **Invoices email their contents, not a link.** There is no public invoice
+  page — the print route sits behind login — so the email carries amount, due
+  date, line items, and payment instructions. Building a public invoice link is
+  a different task and was not smuggled in.
+- **Recipient comes from the client record:** `clients.primary_email`, then the
+  primary contact, then any contact with an address. None → the button says
+  where to add one. Never a guess, never a placeholder address.
+- **Plain text only** in this version. It delivers everywhere and it reads.
+- **`dispatchEmail` was moved out of the `'use server'` file** after review:
+  every export of such a file is a browser-callable endpoint, and this function
+  trusts its caller to have checked permissions. It now lives in `dispatch.ts`
+  with no directive, unreachable from a client. Worth remembering: a helper in
+  an actions file is an endpoint whether or not it was meant to be.
+- **The log stores metadata, never the body.** Provider-agnostic columns
+  (`provider`, `provider_message_id`, `kind`, `related_id`) instead of the
+  design doc's Gmail-specific one. Append-only for every role including the
+  app's own; a row must say when it was sent or why it failed.
+- Also fixed in passing: the change-order page took the newest share event's
+  token, which would have been null once "emailed" events landed in the same
+  table. It now takes the newest event that actually carries a token.
+
+**Verified (measured):**
+- 30 unit tests on the core — every template branch, raw-message round-trip,
+  76-column wrapping, unicode, and that neither the subject nor the sender name
+  can inject a `Bcc:` header. Suite now **730 tests / 35 files**.
+- 11 new assertions on real Postgres, **191 total**: sent and failed rows are
+  recorded; a sent row must carry `sent_at`; a failed row must carry `error`;
+  unknown kind and empty recipients refused; update and delete refused for the
+  app role; delete refused even for the owning role that bypasses RLS; other
+  org sees nothing and cannot write.
+- `scripts/test-setup-sql.sh`: 49 tables, all ENABLE + FORCE.
+- Typecheck, lint (zero warnings), production build — all three rewired pages
+  compile. One TypeScript strictness catch was in the test file itself; only
+  `tsc` sees tests, which is why the gate runs all four checks.
+- **Live:** `0045_absent_tag` and `0046_email_rls` applied and verified —
+  `email_log` enabled, forced, 1 policy, 2 triggers, 5 checks, 4 FKs; 49 tables,
+  zero unforced; 68 policies; advisor still only the three Task 6 warnings.
+
+**Not verified — do not report as working:** no email has ever been sent from
+this application. No Google account is connected (Task 31's OAuth client does
+not exist yet) and no Resend key is set. The Gmail and Resend providers have
+never made a real request. Proven against itself and against Postgres, not
+against a mail server. The first real send is the owner's to make, on the
+deployed URL, once the Vercel and Google variables exist.
+
 ## 2026-09-09 — Task 31: Google Workspace connection (OAuth + token custody)
 **By:** Claude
 

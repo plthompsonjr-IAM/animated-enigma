@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Link2, Lock, Receipt } from 'lucide-react';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { invoiceChangeOrder } from '@/lib/invoices/actions';
 import { getAuthContext } from '@/lib/auth/session';
@@ -22,10 +22,12 @@ import {
   type ChangeOrderStatus,
 } from '@/lib/change-orders/change-orders-core';
 import { formatMoney } from '@/lib/invoices/invoices-core';
+import { lastEmailFor, latestChangeOrderToken, recipientForProject } from '@/lib/email/queries';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { ChangeOrderStatusBadge } from '@/components/change-orders/change-order-status-badge';
 import { ApprovalRecord } from '@/components/proposals/approval-record';
+import { EmailToClient } from '@/components/email/email-to-client';
 import { ChangeOrderForm } from './change-order-form';
 import { CopyChangeOrderLink } from './copy-link';
 
@@ -71,16 +73,15 @@ export default async function ChangeOrderDetailPage({
   }));
   const totals = costBreakdown(items);
 
-  const signature = await signatureForChangeOrder(orgId, co.id);
-
-  // The raw share token is surfaced once, via the share-event log.
-  const [shareEvent] = await getDb()
-    .select({ token: schema.changeOrderShareEvents.token })
-    .from(schema.changeOrderShareEvents)
-    .where(eq(schema.changeOrderShareEvents.changeOrderId, co.id))
-    .orderBy(desc(schema.changeOrderShareEvents.occurredAt))
-    .limit(1);
-  const shareToken = shareEvent?.token ?? null;
+  // The share token is surfaced once via the share-event log. "Emailed" events
+  // land in the same log with no token, so the lookup is by newest row that
+  // actually carries one — not simply the newest row.
+  const [signature, shareToken, recipient, lastSent] = await Promise.all([
+    signatureForChangeOrder(orgId, co.id),
+    latestChangeOrderToken(orgId, co.id),
+    mayWrite ? recipientForProject(orgId, co.projectId) : Promise.resolve(null),
+    mayWrite ? lastEmailFor(orgId, 'change_order', co.id) : Promise.resolve(null),
+  ]);
 
   // Has this change order already been billed?
   const [invoice] = countsTowardContract(status)
@@ -219,6 +220,13 @@ export default async function ChangeOrderDetailPage({
               login required. Approving records their signature the same way a proposal does.
             </p>
             {shareToken ? <CopyChangeOrderLink token={shareToken} /> : null}
+            <EmailToClient
+              kind="change_order"
+              id={co.id}
+              recipient={recipient ? { name: recipient.name, email: recipient.email } : null}
+              lastSent={lastSent}
+              disabledReason={shareToken ? null : 'Create the approval link first, then send it.'}
+            />
             <form action={shareChangeOrder}>
               <input type="hidden" name="changeOrderId" value={co.id} />
               <Button

@@ -1737,6 +1737,55 @@ export const googleConnections = pgTable(
   ],
 );
 
+/**
+ * What was emailed, to whom, by which provider, and whether it left (Task 32).
+ *
+ * Metadata only — never the body. The body is reconstructible from the
+ * document it was about, and an audit table that stores every proposal's full
+ * text is a second copy of client data with none of the freeze rules. What the
+ * record has to answer is "did the client get the invoice, and when" — which is
+ * addresses, subject, provider id, and a timestamp.
+ *
+ * Append-only, enforced by trigger for every role including the app's own. An
+ * email that went out cannot later be made to look as though it didn't.
+ *
+ * Deviates from the original design in two ways, both toward vendor
+ * independence: `provider` + `provider_message_id` instead of a Gmail-specific
+ * column, and `kind` + `related_id` so the log can answer "was proposal X ever
+ * emailed" without a join through a per-document events table.
+ */
+export const emailLog = pgTable(
+  'email_log',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    clientId: uuid('client_id').references(() => clients.id, { onDelete: 'set null' }),
+    sentBy: uuid('sent_by').references(() => users.id, { onDelete: 'set null' }),
+    /** invitation | proposal | change_order | invoice */
+    kind: text('kind').notNull(),
+    /** The document's id, for "was this ever emailed". */
+    relatedId: uuid('related_id'),
+    /** gmail | resend */
+    provider: text('provider').notNull(),
+    providerMessageId: text('provider_message_id'),
+    fromAddress: text('from_address').notNull(),
+    toAddresses: text('to_addresses').array().notNull(),
+    subject: text('subject').notNull(),
+    /** sent | failed. Drafts are not logged; only attempts. */
+    status: text('status').notNull(),
+    error: text('error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('email_log_org_created_idx').on(table.organizationId, table.createdAt),
+    index('email_log_related_idx').on(table.kind, table.relatedId),
+  ],
+);
+
 export type Client = typeof clients.$inferSelect;
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type Property = typeof properties.$inferSelect;
@@ -1794,3 +1843,5 @@ export type Expense = typeof expenses.$inferSelect;
 export type NewExpense = typeof expenses.$inferInsert;
 export type GoogleConnection = typeof googleConnections.$inferSelect;
 export type NewGoogleConnection = typeof googleConnections.$inferInsert;
+export type EmailLogEntry = typeof emailLog.$inferSelect;
+export type NewEmailLogEntry = typeof emailLog.$inferInsert;
