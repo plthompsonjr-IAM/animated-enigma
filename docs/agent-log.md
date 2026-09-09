@@ -71,6 +71,64 @@ is a public-shaped file in a repository. Reference a variable by name only.
 
 ## Log
 
+## 2026-09-09 — Task 33: site visits and work items mirrored to Google Calendar
+**By:** Claude
+
+The second half of "add Google Workspace". A person who has connected Google
+with the calendar permission now gets every site visit and work item they
+schedule or change placed on their Google Calendar, one way, best-effort.
+Visits are timed events in the organisation's timezone; work items are all-day
+events with Google's exclusive end date (`addDays(endDate, 1)`), which keeps
+the codebase rule that work is calendar days, never instants. Cancel or delete
+removes the event. Editing a record whose event was deleted by hand puts it
+back.
+
+**Where it lives.** `src/lib/calendar/`: `calendar-core.ts` (pure — the two
+event mappings, `syncDecision` with its four branches, mirror-state rules),
+`queries.ts` (the one-round-trip fetch of a visit with client, address,
+assignee, and org timezone; the mirror table reads and upsert),
+`google-calendar.ts` (the Calendar v3 calls and the sync itself — plain
+module, never `'use server'`), and `after-write.ts` (`mirrorLater`, the one
+line each action adds). Eleven actions across `site-visits/actions.ts` and
+`schedule/actions.ts` call it after their write commits.
+
+**Decision: a separate `calendar_events` table, not a column.** The plan said
+`google_event_id` on `schedule_items`. Building it showed why that is wrong:
+the pairing is per *person*, not per record. Each Google connection is its own
+consent, and Task 31's rule is that the app never uses one member's token to
+act for another. So the same visit can legitimately be on two people's
+calendars, and a column cannot say whose event it holds. The table is keyed
+`(source_kind, source_id, user_id)`, RLS-scoped like `google_connections`
+(own rows; administrators read-only), and polymorphic on purpose so a work
+item can be hard-deleted first and its mirror removed afterwards. The existing
+`site_visits.google_event_id` column is left unused rather than dropped, so an
+older deploy still runs against the new schema.
+
+**Decision: `after()` from `next/server`, not a bare `void`.** On Vercel a
+function may be frozen the moment the response is sent; a dangling promise
+would silently never run. `after()` is what keeps it alive. Wrapped so a
+context without a request (a script) falls back to running inline.
+
+**The known limitation, stated.** A record shows on the calendar of whoever
+touched it in the app. If Alice schedules and Bob reschedules, Bob gets his own
+copy and Alice's goes stale. Assigning a visit to Carl does not put it on Carl's
+calendar. Written into `docs/deployment.md` as a limit of per-person consent,
+not hidden. The alternative — using the assignee's token — is the exact thing
+Task 31 promised never to do.
+
+**Numbers.** 756 unit tests / 36 files (26 new). 205 RLS assertions (14 new:
+three checks, the unique pairing, forged-owner insert refused, admin read-only,
+two people holding the same record, own-mirror lookup and upsert shapes,
+cross-org invisibility). 50 tables, all ENABLE + FORCE. Migrations `0047`
+(table) and `0048` (rules) applied to `zhlkfuvscnblkkyfticz` and verified:
+enabled + forced, 2 policies, 1 trigger, 3 checks; advisors unchanged.
+
+**Not proven.** No event has been created on a real Google Calendar. That needs
+the OAuth client (open thread 5) and the Vercel variables (thread 6). The
+Calendar API calls follow the documented v3 shapes, and 404/410 on update and
+delete are handled, but the first real run is the first real test. Nothing in
+the UI yet shows "on your calendar"; the server log does.
+
 ## 2026-09-09 — Task 32: email behind a provider seam; the copy-paste gap closes
 **By:** Claude
 

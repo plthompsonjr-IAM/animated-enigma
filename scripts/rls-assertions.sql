@@ -2249,5 +2249,175 @@ begin
   end;
 end $$;
 
+-- ═══════════════════ Calendar mirrors (Task 33) ═════════════════════════════
+-- A mirror row pairs an app record with an event on one person's calendar. The
+-- rules proven here: the database refuses a mirror of an unknown kind, an
+-- unknown provider, or a blank event id; one person, one event per record;
+-- only the person whose calendar it is may change or remove the pairing; an
+-- owner may see the team's mirrors but write nothing; other organisations see
+-- nothing.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000ccc-0000-4000-8000-000000000003","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  -- Permitted path: Carl records that a site visit is on his calendar.
+  insert into calendar_events
+    (id, organization_id, user_id, source_kind, source_id, external_event_id)
+  values ('000d0ccc-0000-4000-8000-000000000001',
+          '0000000a-0000-4000-8000-000000000001',
+          '00000ccc-0000-4000-8000-000000000003',
+          'site_visit', '00000000-0000-4000-8000-000000000031', 'gcal-carl-1');
+  raise notice 'PASS: a member can record a mirror on their own calendar';
+
+  begin
+    insert into calendar_events
+      (organization_id, user_id, source_kind, source_id, external_event_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000ccc-0000-4000-8000-000000000003',
+            'invoice', '00000000-0000-4000-8000-000000000032', 'gcal-x');
+    raise exception 'FAIL: a mirror of an unknown kind was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a mirror must be of a known kind';
+  end;
+
+  begin
+    insert into calendar_events
+      (organization_id, user_id, source_kind, source_id, provider, external_event_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000ccc-0000-4000-8000-000000000003',
+            'site_visit', '00000000-0000-4000-8000-000000000032', 'outlook', 'x');
+    raise exception 'FAIL: a mirror on an unknown provider was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a mirror must name a known provider';
+  end;
+
+  begin
+    insert into calendar_events
+      (organization_id, user_id, source_kind, source_id, external_event_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000ccc-0000-4000-8000-000000000003',
+            'site_visit', '00000000-0000-4000-8000-000000000032', '');
+    raise exception 'FAIL: a mirror with a blank event id was ALLOWED';
+  exception when check_violation then
+    raise notice 'PASS: a mirror must carry an event id';
+  end;
+
+  begin
+    insert into calendar_events
+      (organization_id, user_id, source_kind, source_id, external_event_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000ccc-0000-4000-8000-000000000003',
+            'site_visit', '00000000-0000-4000-8000-000000000031', 'gcal-carl-dup');
+    raise exception 'FAIL: a second event for the same record on the same calendar was ALLOWED';
+  exception when unique_violation then
+    raise notice 'PASS: one person holds at most one event per record';
+  end;
+
+  begin
+    insert into calendar_events
+      (organization_id, user_id, source_kind, source_id, external_event_id)
+    values ('0000000a-0000-4000-8000-000000000001',
+            '00000aaa-0000-4000-8000-000000000001',
+            'site_visit', '00000000-0000-4000-8000-000000000031', 'gcal-forged');
+    raise exception 'FAIL: recording a mirror on someone else''s calendar was ALLOWED';
+  exception when insufficient_privilege then
+    raise notice 'PASS: nobody can record a mirror on another person''s calendar';
+  end;
+end $$;
+
+-- Alice (owner) sees Carl's mirror but cannot touch it; she can hold her own.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000aaa-0000-4000-8000-000000000001","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from calendar_events;
+  if n <> 1 then raise exception 'FAIL: owner saw % calendar mirrors, expected 1', n; end if;
+  raise notice 'PASS: an owner can see which records are on the team''s calendars';
+
+  update calendar_events set external_event_id = 'hijacked'
+    where id = '000d0ccc-0000-4000-8000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: owner altered another member''s mirror (% rows)', n; end if;
+  delete from calendar_events where id = '000d0ccc-0000-4000-8000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 0 then raise exception 'FAIL: owner removed another member''s mirror (% rows)', n; end if;
+  raise notice 'PASS: the administrator view of calendar mirrors is read-only';
+
+  -- The same record on Alice's own calendar is a separate, permitted row.
+  insert into calendar_events
+    (id, organization_id, user_id, source_kind, source_id, external_event_id)
+  values ('000d0aaa-0000-4000-8000-000000000001',
+          '0000000a-0000-4000-8000-000000000001',
+          '00000aaa-0000-4000-8000-000000000001',
+          'site_visit', '00000000-0000-4000-8000-000000000031', 'gcal-alice-1');
+  raise notice 'PASS: two people can each hold the same record on their own calendar';
+
+  -- The shape the sync uses: this person's own event for this record.
+  select count(*)::int into n from calendar_events
+    where source_kind = 'site_visit'
+      and source_id = '00000000-0000-4000-8000-000000000031'
+      and user_id = '00000aaa-0000-4000-8000-000000000001';
+  if n <> 1 then raise exception 'FAIL: own-mirror lookup returned % rows', n; end if;
+  raise notice 'PASS: own-mirror lookup query runs';
+
+  -- The shape the sync uses to record a fresh event id for the same pairing.
+  insert into calendar_events
+    (organization_id, user_id, source_kind, source_id, provider, external_event_id, synced_at)
+  values ('0000000a-0000-4000-8000-000000000001',
+          '00000aaa-0000-4000-8000-000000000001',
+          'site_visit', '00000000-0000-4000-8000-000000000031', 'google', 'gcal-alice-2', now())
+  on conflict (source_kind, source_id, user_id)
+    do update set external_event_id = excluded.external_event_id, synced_at = excluded.synced_at;
+  select count(*)::int into n from calendar_events
+    where user_id = '00000aaa-0000-4000-8000-000000000001' and external_event_id = 'gcal-alice-2';
+  if n <> 1 then raise exception 'FAIL: mirror upsert did not replace the event id'; end if;
+  raise notice 'PASS: re-recording a mirror replaces the event id in place';
+end $$;
+
+-- Carl sees only his own again, and can remove it.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000ccc-0000-4000-8000-000000000003","org":"0000000a-0000-4000-8000-000000000001"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from calendar_events;
+  if n <> 1 then raise exception 'FAIL: non-admin saw % calendar mirrors, expected only their own', n; end if;
+  raise notice 'PASS: a non-administrator sees only their own calendar mirrors';
+
+  delete from calendar_events where id = '000d0ccc-0000-4000-8000-000000000001';
+  get diagnostics n = row_count;
+  if n <> 1 then raise exception 'FAIL: a member could not remove their own mirror'; end if;
+  raise notice 'PASS: a member can remove their own calendar mirror';
+end $$;
+
+-- Another organisation sees nothing at all.
+reset role;
+set role app_user;
+select set_config('request.jwt.claims',
+  '{"sub":"00000bbb-0000-4000-8000-000000000002","org":"0000000b-0000-4000-8000-000000000002"}',
+  false);
+
+do $$
+declare n int;
+begin
+  select count(*)::int into n from calendar_events;
+  if n <> 0 then raise exception 'FAIL: another organisation saw % calendar mirrors', n; end if;
+  raise notice 'PASS: calendar mirrors are invisible across organisations';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

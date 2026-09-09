@@ -8,6 +8,7 @@ import { logger } from '@/lib/logger';
 import { getAuthContext, type AuthContext } from '@/lib/auth/session';
 import { assertCan } from '@/lib/auth/rbac';
 import type { FormState } from '@/lib/auth/actions';
+import { mirrorLater } from '@/lib/calendar/after-write';
 import { VISIT_TYPE_LABELS } from './site-visits-core';
 import {
   scheduleVisitSchema,
@@ -89,6 +90,7 @@ export async function scheduleVisit(_prev: FormState, formData: FormData): Promi
   }
   const input = parsed.data;
   const scheduledAt = new Date(input.scheduledAt);
+  let visitId: string | null = null;
 
   try {
     const db = getDb();
@@ -120,17 +122,21 @@ export async function scheduleVisit(_prev: FormState, formData: FormData): Promi
         if (!project) throw new Error('project not in org');
       }
 
-      await tx.insert(schema.siteVisits).values({
-        organizationId: orgId,
-        leadId: input.leadId,
-        projectId: input.projectId,
-        visitType: input.visitType,
-        scheduledAt,
-        durationMinutes: input.durationMinutes,
-        assignedTo: input.assignedTo,
-        notes: input.notes,
-        createdBy: userId,
-      });
+      const [created] = await tx
+        .insert(schema.siteVisits)
+        .values({
+          organizationId: orgId,
+          leadId: input.leadId,
+          projectId: input.projectId,
+          visitType: input.visitType,
+          scheduledAt,
+          durationMinutes: input.durationMinutes,
+          assignedTo: input.assignedTo,
+          notes: input.notes,
+          createdBy: userId,
+        })
+        .returning({ id: schema.siteVisits.id });
+      visitId = created?.id ?? null;
 
       await logActivity(
         tx,
@@ -147,6 +153,7 @@ export async function scheduleVisit(_prev: FormState, formData: FormData): Promi
     return { error: 'Could not schedule the visit. Try again.' };
   }
 
+  if (visitId) mirrorLater('site_visit', orgId, userId, visitId);
   revalidatePath('/schedule');
   if (input.leadId) revalidatePath(`/leads/${input.leadId}`);
   if (input.projectId) revalidatePath(`/projects/${input.projectId}`);
@@ -180,6 +187,7 @@ export async function rescheduleVisit(formData: FormData): Promise<void> {
       ),
     );
 
+  mirrorLater('site_visit', orgId, auth.ctx.userId, parsed.data.visitId);
   revalidatePath('/schedule');
 }
 
@@ -205,6 +213,7 @@ export async function assignVisit(formData: FormData): Promise<void> {
       ),
     );
 
+  mirrorLater('site_visit', orgId, auth.ctx.userId, parsed.data.visitId);
   revalidatePath('/schedule');
 }
 
@@ -252,6 +261,7 @@ export async function completeVisit(_prev: FormState, formData: FormData): Promi
     return { error: 'Could not save the visit. Try again.' };
   }
 
+  mirrorLater('site_visit', orgId, userId, parsed.data.visitId);
   revalidatePath('/schedule');
   return { message: 'Visit marked complete.' };
 }
@@ -273,6 +283,7 @@ export async function cancelVisit(formData: FormData): Promise<void> {
     if (visit) await logActivity(tx, orgId, userId, visit, 'Site visit cancelled');
   });
 
+  mirrorLater('site_visit', orgId, userId, visitId);
   revalidatePath('/schedule');
 }
 
@@ -288,6 +299,7 @@ export async function reopenVisit(formData: FormData): Promise<void> {
     .set({ status: 'scheduled', completedAt: null })
     .where(and(eq(schema.siteVisits.organizationId, orgId), eq(schema.siteVisits.id, visitId)));
 
+  mirrorLater('site_visit', orgId, auth.ctx.userId, visitId);
   revalidatePath('/schedule');
 }
 

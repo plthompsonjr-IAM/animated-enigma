@@ -3,7 +3,7 @@
 An AI-powered general contractor command system for **PT's Tactical Renovations**
 (PTTR) — *"Your Home, Our Mission."* Owner: Patrick Thompson.
 
-Built as 50 controlled tasks across 13 phases. Tasks 1–30 are complete and live.
+Built as 50 controlled tasks across 13 phases. Tasks 1–33 are complete and live.
 
 ---
 
@@ -68,7 +68,14 @@ that can be tested without a network, and one module that owns the I/O.
 `google/` is the model: `google-core.ts` (scopes, URL building, CSRF state,
 token encryption), `tokens.ts` (the only place a refresh token is ever
 decrypted), `queries.ts`, `actions.ts`, and the two routes under
-`src/app/api/auth/google/`.
+`src/app/api/auth/google/`. `email/` and `calendar/` are built on it the same
+way: a pure core, a provider module that owns the vendor call, and a plain
+(never `'use server'`) entry point the permission-checked action calls.
+
+A mirror of a record on an external service — a calendar event — is
+**best-effort and one-way**. It runs after the response via `after()` from
+`next/server`, logs its outcome, and never blocks or fails the record. The app
+is the source of truth; the vendor holds a copy.
 
 Two rules that follow from it:
 
@@ -179,7 +186,7 @@ scripts/                            RLS harness, setup script, verifiers
 docs/                               PRD, architecture, full 50-table schema
 ```
 
-Domains built: `ai-foreman` `auth` `catalog` `change-orders` `clients` `contracts`
+Domains built: `ai-foreman` `auth` `calendar` `catalog` `change-orders` `clients` `contracts`
 `costing` `daily-logs` `dashboard` `email` `estimates` `financials` `google` `intake` `invoices`
 `leads` `media` `projects` `proposals` `schedule` `scopes` `signatures`
 `site-visits` `storage` `tasks`
@@ -298,10 +305,10 @@ Not "Warning: incomplete data." Not "Invalid range."
 
 ## Current state
 
-- **666 unit tests** across 33 files
-- **169 real-Postgres RLS assertions**
-- **47 tables**, all `ENABLE` + `FORCE` RLS
-- Migrations through `0043` applied to the live project and verified
+- **756 unit tests** across 36 files
+- **205 real-Postgres RLS assertions**
+- **50 tables**, all `ENABLE` + `FORCE` RLS
+- Migrations through `0048` applied to the live project and verified
 - Security advisor: three pre-existing WARNs on `has_role` / `is_member_of` /
   `org_has_members` from Task 6. Known, unrelated. Anything else is new and yours.
 

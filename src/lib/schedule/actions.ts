@@ -8,6 +8,7 @@ import { logger } from '@/lib/logger';
 import { getAuthContext, type AuthContext } from '@/lib/auth/session';
 import { assertCan } from '@/lib/auth/rbac';
 import type { FormState } from '@/lib/auth/actions';
+import { mirrorLater } from '@/lib/calendar/after-write';
 import {
   SCHEDULE_PHASES,
   addDays,
@@ -77,6 +78,7 @@ export async function createScheduleItem(
 
   const dependsOnId = uuidOrNull(formData.get('dependsOnId'));
   const crew = uuidList(formData.getAll('crew'));
+  let createdId: string | null = null;
 
   try {
     const db = getDb();
@@ -112,12 +114,14 @@ export async function createScheduleItem(
       if (!created) throw new Error('insert returned no row');
 
       await assignCrewWithin(tx, orgId, created.id, crew);
+      createdId = created.id;
     });
   } catch (error) {
     logger.error('schedule.create_item_failed', { error: String(error), projectId });
     return { error: friendlyDbError(error) };
   }
 
+  if (createdId) mirrorLater('schedule_item', orgId, userId, createdId);
   revalidateSchedule(projectId);
   return { message: 'Work item added.' };
 }
@@ -205,6 +209,7 @@ export async function updateScheduleItem(
     return { error: friendlyDbError(error) };
   }
 
+  mirrorLater('schedule_item', orgId, auth.userId, itemId);
   revalidateSchedule(projectId);
   return { message: 'Work item saved.' };
 }
@@ -242,6 +247,7 @@ export async function setScheduleItemStatus(formData: FormData): Promise<void> {
     logger.error('schedule.set_status_failed', { error: String(error), itemId });
     return;
   }
+  if (projectId) mirrorLater('schedule_item', orgId, auth.userId, itemId);
   revalidateSchedule(projectId);
 }
 
@@ -268,6 +274,8 @@ export async function deleteScheduleItem(formData: FormData): Promise<void> {
     logger.error('schedule.delete_item_failed', { error: String(error), itemId });
     return;
   }
+  // The row is gone; the mirror finds nothing and takes the event off the calendar.
+  if (projectId) mirrorLater('schedule_item', orgId, auth.userId, itemId);
   revalidateSchedule(projectId);
 }
 
@@ -314,6 +322,7 @@ export async function shiftScheduleItem(formData: FormData): Promise<void> {
     logger.error('schedule.shift_item_failed', { error: String(error), itemId });
     return;
   }
+  mirrorLater('schedule_item', orgId, auth.userId, itemId);
   revalidateSchedule(projectId);
 }
 
@@ -330,6 +339,7 @@ export async function seedProjectSchedule(formData: FormData): Promise<void> {
 
   const projectId = uuidOrNull(formData.get('projectId'));
   if (!projectId) return;
+  const seededIds: string[] = [];
 
   try {
     const db = getDb();
@@ -378,6 +388,7 @@ export async function seedProjectSchedule(formData: FormData): Promise<void> {
           })
           .returning({ id: schema.scheduleItems.id });
         previousId = created[0]?.id ?? null;
+        if (previousId) seededIds.push(previousId);
         const next = addDays(end, 3); // next phase starts the following Monday
         if (!next) break;
         cursor = next;
@@ -387,6 +398,7 @@ export async function seedProjectSchedule(formData: FormData): Promise<void> {
     logger.error('schedule.seed_failed', { error: String(error), projectId });
     return;
   }
+  for (const id of seededIds) mirrorLater('schedule_item', orgId, userId, id);
   revalidateSchedule(projectId);
 }
 

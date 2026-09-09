@@ -1786,6 +1786,57 @@ export const emailLog = pgTable(
   ],
 );
 
+/**
+ * Calendar mirrors (Task 33): which external calendar event stands for which
+ * app record, on whose calendar.
+ *
+ * A separate table rather than a `google_event_id` column on each source table
+ * because the pairing is per *person*, not per record. Each connected Google
+ * account is its own consent, and the app never uses one member's token to act
+ * for another — so a site visit that two people have touched can legitimately
+ * exist on two calendars, and the row for each must be told apart. The column
+ * form cannot say whose event it holds. (`site_visits.google_event_id` predates
+ * this and is left unused rather than dropped, so an older deploy still runs.)
+ *
+ * `source_kind` + `source_id` is polymorphic on purpose: no foreign key, so the
+ * source row can be hard-deleted first and the mirror removed afterwards from
+ * whatever copy of the id the caller kept. `provider` is fixed to `google`
+ * today and exists so a second calendar provider is a new value, not a schema
+ * change.
+ */
+export const calendarEvents = pgTable(
+  'calendar_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'restrict' }),
+    /** Whose calendar holds the event. Goes with the person, like their connection. */
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sourceKind: text('source_kind').notNull(),
+    sourceId: uuid('source_id').notNull(),
+    provider: text('provider').notNull().default('google'),
+    externalEventId: text('external_event_id').notNull(),
+    syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('calendar_events_source_user_idx').on(
+      table.sourceKind,
+      table.sourceId,
+      table.userId,
+    ),
+    index('calendar_events_org_source_idx').on(
+      table.organizationId,
+      table.sourceKind,
+      table.sourceId,
+    ),
+  ],
+);
+
 export type Client = typeof clients.$inferSelect;
 export type ClientContact = typeof clientContacts.$inferSelect;
 export type Property = typeof properties.$inferSelect;
@@ -1845,3 +1896,5 @@ export type GoogleConnection = typeof googleConnections.$inferSelect;
 export type NewGoogleConnection = typeof googleConnections.$inferInsert;
 export type EmailLogEntry = typeof emailLog.$inferSelect;
 export type NewEmailLogEntry = typeof emailLog.$inferInsert;
+export type CalendarEventMirror = typeof calendarEvents.$inferSelect;
+export type NewCalendarEventMirror = typeof calendarEvents.$inferInsert;

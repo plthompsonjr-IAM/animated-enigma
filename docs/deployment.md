@@ -5,7 +5,7 @@ document has been executed — it is the plan, not a record. Once a deploy has
 actually run, correct anything here that turned out to be wrong.
 
 The live Supabase project is **`zhlkfuvscnblkkyfticz`** (Tactical-Foreman,
-`ca-central-1`). It carries migrations through `0043` and all 47 tables have
+`ca-central-1`). It carries migrations through `0048` and all 50 tables have
 forced row-level security.
 
 ---
@@ -80,7 +80,7 @@ environment. None of them belong in the repository.
 | Variable | Turns on |
 |---|---|
 | `ANTHROPIC_API_KEY` | Model-assisted drafting in the AI Foreman. Without it the briefing still works; it is assembled from the job record by fixed rules. |
-| `RESEND_API_KEY`, `EMAIL_FROM` | Sending client links. No sending module is written yet, so setting these alone does nothing today. |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Sending client links from the company address, used when the sender has no Google account connected. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Sending email as, and syncing calendar to, a connected Google account. See **Google Workspace** below. Off until all four Google variables exist; the Settings card names which are missing. |
 | `GOOGLE_OAUTH_REDIRECT_URI` | `https://<deployed host>/api/auth/google/callback`. Must match the OAuth client to the character. |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored refresh tokens app-side; the database never holds one in the clear. |
@@ -104,7 +104,7 @@ environment. None of them belong in the repository.
    DATABASE_URL="<direct connection string>" pnpm db:migrate
    ```
 
-   The live project is already current through `0043`, so this is a no-op today.
+   The live project is already current through `0048`, so this is a no-op today.
    It matters for the next migration.
 
 ---
@@ -171,6 +171,27 @@ Each member connects their own account; nobody's token is shared, and an owner
 can see who is connected but cannot use or alter anyone else's connection. That
 rule is enforced by row-level security, not just by the interface.
 
+### What the calendar does, and does not do
+
+Once someone has connected with the calendar permission, every site visit and
+work item **they** schedule or change is mirrored to **their** Google Calendar:
+visits as timed events at the organisation's timezone, work items as all-day
+events spanning their days. Cancelling a visit or work item, or deleting a work
+item, removes the event. Deleting the event by hand in Google and then editing
+the record in the app puts it back.
+
+The mirror follows from the per-person consent rule, so it has a limit worth
+knowing: a record shows on the calendar of the person who touched it in the app.
+If Alice schedules a visit and Bob later reschedules it, Bob's calendar gets its
+own copy and Alice's copy stays where it was. The app never uses one person's
+token to fix another's calendar. Assigning a visit to someone does not put it on
+their calendar unless they themselves make a change to it.
+
+The sync is one-way and best-effort. It runs after the screen has responded, so
+a slow or failing Google never slows a tap on the jobsite, and it can never
+stop a visit from being saved. Outcomes are in the server log under `calendar:`.
+Nothing in the app reads a calendar back.
+
 ## If it goes wrong
 
 **Roll back** to the previous deployment in the hosting dashboard. It is instant
@@ -202,6 +223,10 @@ Stated so nobody reads a green deploy as a finished product:
   `RESEND_API_KEY` and `EMAIL_FROM` set it leaves from the company address;
   with neither, every send button says so and the copy-link path remains.
   Nothing has been sent from this deployment yet.
+- **Calendar sync has been built but never run against a real calendar.** It
+  needs a connected Google account, which needs the OAuth client above. Until
+  someone connects and schedules a visit, the only proof is the unit tests on
+  the event mapping and the database rules on the mirror table.
 - **No payment processing.** Payments are recorded by hand.
 - **The contract terms have not had attorney review.** The Ohio right-to-cancel
   wording is a placeholder and the app warns while bracketed blanks remain.

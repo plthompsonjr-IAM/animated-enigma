@@ -2866,3 +2866,85 @@ drop policy if exists email_log_tenant on email_log;
 create policy email_log_tenant on email_log
   using (organization_id = current_org() and is_member_of(organization_id))
   with check (organization_id = current_org() and is_member_of(organization_id));
+
+-- ═══ Part 29 — Task 33: calendar mirrors ═══
+-- Which external calendar event stands for which app record, on whose
+-- calendar. Per person, like the connection whose token created it: only the
+-- owner of a mirror may change it; administrators may see the team's.
+
+create table if not exists calendar_events (
+  id uuid primary key default gen_random_uuid() not null,
+  organization_id uuid not null,
+  user_id uuid not null,
+  source_kind text not null,
+  source_id uuid not null,
+  provider text default 'google' not null,
+  external_event_id text not null,
+  synced_at timestamptz default now() not null,
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
+
+do $$ begin
+  alter table calendar_events
+    add constraint calendar_events_organization_id_organizations_id_fk
+    foreign key (organization_id) references organizations(id) on delete restrict;
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table calendar_events
+    add constraint calendar_events_user_id_users_id_fk
+    foreign key (user_id) references users(id) on delete cascade;
+exception when duplicate_object then null; end $$;
+
+create unique index if not exists calendar_events_source_user_idx
+  on calendar_events (source_kind, source_id, user_id);
+create index if not exists calendar_events_org_source_idx
+  on calendar_events (organization_id, source_kind, source_id);
+
+do $$ begin
+  alter table calendar_events add constraint calendar_events_kind_known
+    check (source_kind in ('site_visit', 'schedule_item'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table calendar_events add constraint calendar_events_provider_known
+    check (provider in ('google'));
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  alter table calendar_events add constraint calendar_events_has_event
+    check (char_length(external_event_id) > 0);
+exception when duplicate_object then null; end $$;
+
+drop trigger if exists calendar_events_set_updated_at on calendar_events;
+create trigger calendar_events_set_updated_at before update on calendar_events
+  for each row execute function set_updated_at();
+
+alter table calendar_events enable row level security;
+alter table calendar_events force row level security;
+
+drop policy if exists calendar_events_own on calendar_events;
+create policy calendar_events_own on calendar_events
+  using (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and user_id = auth.uid()
+  )
+  with check (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and user_id = auth.uid()
+  );
+
+drop policy if exists calendar_events_admin_read on calendar_events;
+create policy calendar_events_admin_read on calendar_events
+  for select
+  using (
+    organization_id = current_org()
+    and is_member_of(organization_id)
+    and (
+      has_role(organization_id, 'owner')
+      or has_role(organization_id, 'office_manager')
+    )
+  );

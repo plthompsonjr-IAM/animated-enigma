@@ -330,6 +330,20 @@
       "when": 1788941651161,
       "tag": "0046_email_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1788942654902,
+      "tag": "0047_known_senator_kelly",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1788942655902,
+      "tag": "0048_calendar_rls",
+      "breakpoints": true
     }
   ]
 }
