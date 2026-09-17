@@ -2,7 +2,7 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { eq, and } from 'drizzle-orm';
 import { createClient } from '@/lib/supabase/server';
-import { publicEnv } from '@/lib/env';
+import { databaseUrl, publicEnv } from '@/lib/env';
 import { getDb, schema } from '@/db';
 import { logger } from '@/lib/logger';
 import type { Role } from './rbac';
@@ -55,7 +55,7 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
 
   if (!user) return { ...EMPTY, configured: true };
 
-  if (!process.env.DATABASE_URL) {
+  if (!databaseUrl()) {
     return {
       configured: true,
       dbAvailable: false,

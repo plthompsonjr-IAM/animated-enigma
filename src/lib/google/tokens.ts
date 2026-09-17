@@ -1,6 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
-import { serverEnv } from '@/lib/env';
+import { publicEnv, serverEnv } from '@/lib/env';
 import { logger } from '@/lib/logger';
 import {
   GOOGLE_REVOKE_ENDPOINT,
@@ -15,13 +15,21 @@ import { ownLiveConnection } from './queries';
 /** The httpOnly cookie carrying the OAuth CSRF state across the Google round trip. */
 export const GOOGLE_STATE_COOKIE = 'tf-google-state';
 
-/** The Google-relevant slice of the server environment, in the core's shape. */
+/**
+ * The Google-relevant slice of the server environment, in the core's shape.
+ *
+ * The redirect URI defaults to this deployment's own callback, because that is
+ * the only value it can ever correctly hold; setting it by hand exists for the
+ * case where the app is reached through a domain the host does not know about.
+ * Whatever it resolves to must be registered on the OAuth client to the
+ * character — the Settings card shows the value so it can be copied exactly.
+ */
 export function googleEnv(): GoogleEnv {
   const env = serverEnv();
   return {
     clientId: env.GOOGLE_CLIENT_ID,
     clientSecret: env.GOOGLE_CLIENT_SECRET,
-    redirectUri: env.GOOGLE_OAUTH_REDIRECT_URI,
+    redirectUri: env.GOOGLE_OAUTH_REDIRECT_URI ?? `${publicEnv.appUrl}/api/auth/google/callback`,
     encryptionKey: env.GOOGLE_TOKEN_ENCRYPTION_KEY,
   };
 }

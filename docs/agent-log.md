@@ -53,8 +53,8 @@ is a public-shaped file in a repository. Reference a variable by name only.
 | # | Question | Raised | Waiting on |
 |---|---|---|---|
 | 1 | Does production deploy from `main`, or does PR #6 merge first? `main` is 36 commits behind and stops at Task 7, so a production deploy from it today would ship placeholder screens. | 2026-08-14 | Owner |
-| 5 | A Google Cloud OAuth client has to exist before anyone can connect Google: enable the Gmail and Calendar APIs, configure the consent screen, create a Web-application client, register the deployed callback URL exactly, set four `GOOGLE_*` variables on the host. Steps in `docs/deployment.md`. Owner's browser, roughly fifteen minutes, once. | 2026-09-09 | Owner |
-| 6 | The Vercel project still has no environment variables, so the deployed URL serves the unconfigured shell. Until they are set, nothing built since Task 8 — including Google — can be exercised by a human. | 2026-08-16 | Owner |
+| 5 | A Google Cloud OAuth client has to exist before anyone can connect Google: enable the Gmail and Calendar APIs, configure the consent screen, create a Web-application client, register the callback URL the Settings card shows, set three `GOOGLE_*` variables on the host. Part D of `docs/go-live-checklist.md`. Owner's browser, roughly fifteen minutes, once. | 2026-09-09 | Owner |
+| 6 | The Vercel project still has no environment variables, so the deployed URL serves the unconfigured shell. Since 2026-09-17 the fix is linking the Vercel ↔ Supabase integration (Part A of `docs/go-live-checklist.md`); the app reads its variable names directly. Until then, nothing built since Task 8 can be exercised by a human. | 2026-08-16 | Owner |
 | 2 | Once a model key exists, may it draft client-facing text directly, or only suggest edits to the existing deterministic draft? Recommendation on file: draft-only, never autonomous. | 2026-08-14 | Owner |
 | 3 | `src/components/section-placeholder.tsx` is now unused — `/ai-foreman` was its last caller. Delete it, or keep it for stubbing future screens? Kept for now. | 2026-08-14 | Owner |
 
@@ -70,6 +70,53 @@ is a public-shaped file in a repository. Reference a variable by name only.
 ---
 
 ## Log
+
+## 2026-09-17 — Setup shrunk to clicks: integration variable names, derived URLs, go-live checklist
+**By:** Claude
+
+Patrick asked for the Vercel variables and the Google Cloud OAuth client to be
+set up from here. Neither is reachable from this environment, and that was
+checked rather than assumed: the Vercel connector lists the team but returns
+no projects and has no environment-variable tool; Vercel's REST API is blocked
+by the sandbox's egress policy; the Google Cloud token in this environment is a
+placeholder that Google rejects; and an OAuth client can only be created in the
+Cloud Console in any case. So the work went into making the remaining human
+steps as small and as exact as possible.
+
+**Code.** `src/lib/env.ts` now resolves each value from more than one name,
+with pure, tested resolvers: `DATABASE_URL` or the Vercel ↔ Supabase
+integration's `POSTGRES_URL` (its `workaround=` query flag stripped — it is for
+Vercel's own Postgres client, and postgres-js would treat it as an unknown
+option); `SUPABASE_SERVICE_ROLE_KEY` or the newer `SUPABASE_SECRET_KEY`;
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`; and
+the app URL from Vercel's `VERCEL_PROJECT_PRODUCTION_URL` in production or
+`VERCEL_BRANCH_URL` on a preview — the stable branch address, never the
+per-deployment one, which the next push replaces and would leave a client
+holding a dead proposal link. Hand-set names win whenever both exist, so a
+configured deployment does not change. Every `process.env.DATABASE_URL` check
+(session, the five public token pages, the pool) now goes through one
+`databaseUrl()`. The Google redirect URI defaults to
+`<app URL>/api/auth/google/callback`, and the Settings card prints that exact
+value so it can be copied into the Cloud Console rather than typed. Net: the
+Supabase side becomes "install the integration", and Google needs three
+variables instead of four.
+
+**Docs.** `docs/go-live-checklist.md` is the click-by-click for the owner, with
+the real values filled in: the preview URL, the redirect URI, the two scopes,
+the Supabase redirect allow-list pattern. `docs/deployment.md` and
+`.env.example` updated to match.
+
+**Verified.** Names of the integration's variables are from Supabase's own
+Vercel Marketplace page and Vercel's system-variable docs, fetched today, not
+recalled. `tsc`, ESLint, 767 unit tests / 37 files (11 new), production build.
+No SQL changed, so the RLS suites were not re-run.
+
+**Not verified.** No integration has been installed and no variable set; the
+deployed URL still serves the unconfigured shell. Whether the marketplace flow
+offers to link the *existing* Supabase project (rather than creating a new
+one) is exactly the thing the checklist tells the owner to watch for, with the
+by-hand fallback beside it. The Supabase project had auto-paused again
+(`INACTIVE`, eight days idle); `restore_project` was issued.
 
 ## 2026-09-09 — Task 33: site visits and work items mirrored to Google Calendar
 **By:** Claude

@@ -1,4 +1,4 @@
-import { publicEnv } from '@/lib/env';
+import { databaseUrl, publicEnv } from '@/lib/env';
 import { getProposalByToken, signatureForVersion } from '@/lib/proposals/queries';
 import type { ProposalSnapshot } from '@/lib/proposals/proposal-core';
 import { ProposalPrintDocument } from '@/components/proposals/proposal-print-document';
@@ -23,7 +23,7 @@ export default async function ProposalPrintPage({
 }) {
   const { token } = await params;
 
-  if (!publicEnv.supabaseUrl || !process.env.DATABASE_URL) {
+  if (!publicEnv.supabaseUrl || !databaseUrl()) {
     return <Unavailable />;
   }
 

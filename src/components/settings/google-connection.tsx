@@ -26,14 +26,24 @@ export function GoogleConnectionCard({
   connection,
   mayConnect,
   notice,
+  redirectUri,
 }: {
   status: ProviderStatus;
   connection: ConnectionSummary | null;
   mayConnect: boolean;
   notice?: string;
+  /** The callback this deployment answers on — must match the OAuth client exactly. */
+  redirectUri?: string | null;
 }) {
   const flash = notice ? NOTICES[notice] : undefined;
   const live = connection?.live ? connection : null;
+  const callback = redirectUri && mayConnect && !live ? (
+    <p className="text-xs text-muted-foreground">
+      Authorised redirect URI for the Google Cloud OAuth client, exactly:
+      <br />
+      <code className="select-all break-all rounded bg-muted px-1 py-0.5 text-[11px]">{redirectUri}</code>
+    </p>
+  ) : null;
 
   return (
     <Card>
@@ -59,7 +69,10 @@ export function GoogleConnectionCard({
         )}
 
         {!status.configured ? (
-          <p className="text-sm text-muted-foreground">{status.message}</p>
+          <>
+            <p className="text-sm text-muted-foreground">{status.message}</p>
+            {callback}
+          </>
         ) : live ? (
           <>
             <p className="text-sm">
@@ -103,6 +116,7 @@ export function GoogleConnectionCard({
                 Only an owner or administrator can connect Google for now.
               </p>
             )}
+            {callback}
           </>
         )}
       </CardContent>

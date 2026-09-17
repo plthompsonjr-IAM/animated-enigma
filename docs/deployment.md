@@ -12,7 +12,11 @@ forced row-level security.
 
 ## Before you start
 
-You need three things that do not exist yet:
+The fastest path needs one thing: **the Vercel ↔ Supabase integration** linked
+to this project. It writes the database and API variables into Vercel for you
+and keeps them current. `docs/go-live-checklist.md` walks it click by click.
+
+Doing it by hand instead, you need three things:
 
 1. **A hosting account** connected to the GitHub repository.
 2. **The Supabase database password.** Not the anon key, not the service-role
@@ -60,20 +64,28 @@ rather than assembling them by hand — the host format has changed before.
 Set these in the hosting platform's project settings, for the Production
 environment. None of them belong in the repository.
 
+**If the Vercel ↔ Supabase integration is linked, the first block is already
+done.** The app reads the integration's names as fallbacks — `POSTGRES_URL` for
+`DATABASE_URL`, `SUPABASE_SECRET_KEY` for `SUPABASE_SERVICE_ROLE_KEY`,
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for the anon key — and the hand-set
+names win whenever both exist. The app URL is taken from Vercel's own
+`VERCEL_PROJECT_PRODUCTION_URL` (production) or `VERCEL_BRANCH_URL` (preview)
+unless `NEXT_PUBLIC_APP_URL` overrides it.
+
 ### Required — the app will not work without these
 
 | Variable | Where it comes from | Notes |
 |---|---|---|
-| `DATABASE_URL` | Supabase → Connect | **Transaction pooler string, port 6543.** See above. |
-| `NEXT_PUBLIC_SUPABASE_URL` | Settings → API | Safe to expose; it is in the browser bundle. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Settings → API | Safe to expose. Row-level security is what protects the data, not this key's secrecy. |
-| `NEXT_PUBLIC_APP_URL` | The deployed URL | Used to build client-facing links. Set it to the real domain, not the preview URL, or proposal links will point at a deployment that gets replaced. |
+| `DATABASE_URL` | Supabase → Connect (or the integration's `POSTGRES_URL`) | **Transaction pooler string, port 6543.** See above. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Settings → API (or the integration) | Safe to expose; it is in the browser bundle. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Settings → API (or the integration's `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) | Safe to expose. Row-level security is what protects the data, not this key's secrecy. |
+| `NEXT_PUBLIC_APP_URL` | The deployed URL (or derived from Vercel) | Used to build client-facing links. Set it once a custom domain exists; until then Vercel's stable branch/production URL is used automatically. |
 
 ### Required for file uploads
 
 | Variable | Notes |
 |---|---|
-| `SUPABASE_SERVICE_ROLE_KEY` | **Bypasses row-level security.** Server-only. Without it, the app disables uploads and says so on screen rather than failing at the moment someone tries. |
+| `SUPABASE_SERVICE_ROLE_KEY` (or the integration's `SUPABASE_SECRET_KEY`) | **Bypasses row-level security.** Server-only. Without it, the app disables uploads and says so on screen rather than failing at the moment someone tries. |
 
 ### Optional — features stay off and say so
 
@@ -81,9 +93,9 @@ environment. None of them belong in the repository.
 |---|---|
 | `ANTHROPIC_API_KEY` | Model-assisted drafting in the AI Foreman. Without it the briefing still works; it is assembled from the job record by fixed rules. |
 | `RESEND_API_KEY`, `EMAIL_FROM` | Sending client links from the company address, used when the sender has no Google account connected. |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Sending email as, and syncing calendar to, a connected Google account. See **Google Workspace** below. Off until all four Google variables exist; the Settings card names which are missing. |
-| `GOOGLE_OAUTH_REDIRECT_URI` | `https://<deployed host>/api/auth/google/callback`. Must match the OAuth client to the character. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Sending email as, and syncing calendar to, a connected Google account. See **Google Workspace** below. Off until the three Google variables exist; the Settings card names which are missing. |
 | `GOOGLE_TOKEN_ENCRYPTION_KEY` | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts stored refresh tokens app-side; the database never holds one in the clear. |
+| `GOOGLE_OAUTH_REDIRECT_URI` | Optional override. Defaults to `<app URL>/api/auth/google/callback`; the Settings card shows the exact value to register. |
 | `DB_POOL_MAX` | Overrides the connection cap. Leave unset — production defaults to 1, which is what serverless wants. |
 
 ---
@@ -138,7 +150,7 @@ Also worth a look on day one:
 ## Google Workspace (optional)
 
 Lets the app send email as a connected Google account and place site visits on
-its calendar. Entirely off until all four `GOOGLE_*` variables exist, and the
+its calendar. Entirely off until the three `GOOGLE_*` variables exist, and the
 Settings card says which are missing rather than failing quietly.
 
 This is the one piece of Google Cloud Console this deployment cannot avoid. It
@@ -152,7 +164,8 @@ is a one-time click-through, about fifteen minutes.
    *Testing*, add every Google account that will connect as a test user; move
    it to *Production* before the crew needs it.
 3. **Create an OAuth client** — Credentials → Create credentials → OAuth client
-   ID → *Web application*. Under Authorised redirect URIs add, exactly:
+   ID → *Web application*. Under Authorised redirect URIs add, exactly, the
+   value the Settings → Google Workspace card shows. It is:
 
    ```
    https://<your deployed host>/api/auth/google/callback
@@ -163,9 +176,10 @@ is a one-time click-through, about fifteen minutes.
    Google shows `redirect_uri_mismatch` and nothing reaches the app.
 4. **Generate the token key:** `openssl rand -base64 32`. Rotating it later
    invalidates every stored connection; people reconnect once.
-5. **Set the four variables** on the host and redeploy. Then, signed in as the
-   owner: Settings → Google Workspace → **Connect Google**. The consent screen
-   should list two permissions and no more.
+5. **Set the three variables** (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+   `GOOGLE_TOKEN_ENCRYPTION_KEY`) on the host and redeploy. Then, signed in as
+   the owner: Settings → Google Workspace → **Connect Google**. The consent
+   screen should list two permissions and no more.
 
 Each member connects their own account; nobody's token is shared, and an owner
 can see who is connected but cannot use or alter anyone else's connection. That

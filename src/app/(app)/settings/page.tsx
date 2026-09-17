@@ -89,6 +89,7 @@ export default async function SettingsPage({
         connection={connection ? connectionSummary(connection) : null}
         mayConnect={mayManage}
         notice={sp.google}
+        redirectUri={googleEnv().redirectUri}
       />
 
       <Card>

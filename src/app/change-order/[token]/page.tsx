@@ -1,5 +1,5 @@
 import { CheckCircle2, XCircle, Clock, Printer } from 'lucide-react';
-import { publicEnv } from '@/lib/env';
+import { databaseUrl, publicEnv } from '@/lib/env';
 import { getChangeOrderByToken, signatureForChangeOrder } from '@/lib/change-orders/queries';
 import { recordChangeOrderView } from '@/lib/change-orders/actions';
 import {
@@ -28,7 +28,7 @@ export default async function PublicChangeOrderPage({
 }) {
   const { token } = await params;
 
-  if (!publicEnv.supabaseUrl || !process.env.DATABASE_URL) return <Unavailable />;
+  if (!publicEnv.supabaseUrl || !databaseUrl()) return <Unavailable />;
 
   const co = await getChangeOrderByToken(token);
   if (!co) return <Unavailable />;

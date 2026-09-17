@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
+import { databaseUrl } from '@/lib/env';
 import * as schema from './schema';
 
 /**
@@ -15,9 +16,11 @@ let client: ReturnType<typeof postgres> | null = null;
 
 function getClient() {
   if (client) return client;
-  const url = process.env.DATABASE_URL;
+  const url = databaseUrl();
   if (!url) {
-    throw new Error('DATABASE_URL is not set — configure it in .env.local (see .env.example).');
+    throw new Error(
+      'No database connection string — set DATABASE_URL (or install the Vercel ↔ Supabase integration, which sets POSTGRES_URL). See .env.example.',
+    );
   }
   // `prepare: false` is required by Supabase's transaction-mode pooler, which
   // multiplexes statements across backends and so cannot hold prepared statements.

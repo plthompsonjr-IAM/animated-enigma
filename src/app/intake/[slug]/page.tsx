@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
-import { publicEnv } from '@/lib/env';
+import { databaseUrl, publicEnv } from '@/lib/env';
 import { PublicIntakeForm } from '@/components/intake/public-intake-form';
 
 export const metadata = {
@@ -14,7 +14,7 @@ export default async function PublicIntakePage({ params }: { params: Promise<{ s
   const { slug } = await params;
 
   // Requires a real database connection (unauthenticated read of the org).
-  if (!publicEnv.supabaseUrl || !process.env.DATABASE_URL) notFound();
+  if (!publicEnv.supabaseUrl || !databaseUrl()) notFound();
 
   const db = getDb();
   const [org] = await db

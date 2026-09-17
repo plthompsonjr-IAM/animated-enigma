@@ -1,4 +1,4 @@
-import { publicEnv } from '@/lib/env';
+import { databaseUrl, publicEnv } from '@/lib/env';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import { getChangeOrderByToken, signatureForChangeOrder } from '@/lib/change-orders/queries';
@@ -24,7 +24,7 @@ export default async function ChangeOrderPrintPage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = await params;
-  if (!publicEnv.supabaseUrl || !process.env.DATABASE_URL) return <Unavailable />;
+  if (!publicEnv.supabaseUrl || !databaseUrl()) return <Unavailable />;
 
   const co = await getChangeOrderByToken(token);
   if (!co) return <Unavailable />;

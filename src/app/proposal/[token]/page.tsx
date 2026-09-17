@@ -1,5 +1,5 @@
 import { CheckCircle2, XCircle, Clock, Printer } from 'lucide-react';
-import { publicEnv } from '@/lib/env';
+import { databaseUrl, publicEnv } from '@/lib/env';
 import { getProposalByToken } from '@/lib/proposals/queries';
 import { recordProposalView } from '@/lib/proposals/actions';
 import { canRespond, type ProposalSnapshot } from '@/lib/proposals/proposal-core';
@@ -19,7 +19,7 @@ export default async function PublicProposalPage({
 }) {
   const { token } = await params;
 
-  if (!publicEnv.supabaseUrl || !process.env.DATABASE_URL) {
+  if (!publicEnv.supabaseUrl || !databaseUrl()) {
     return <Shell>This proposal isn’t available.</Shell>;
   }
 
