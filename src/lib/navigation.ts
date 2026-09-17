@@ -25,6 +25,10 @@ const SEGMENT_LABELS: Record<string, string> = {
   settings: 'Settings',
   team: 'Team',
   onboarding: 'Set up',
+  properties: 'Properties',
+  new: 'New',
+  edit: 'Edit',
+  intake: 'Intake',
 };
 
 function humanize(segment: string): string {
@@ -48,9 +52,10 @@ export function buildBreadcrumbs(pathname: string): Crumb[] {
 /** The quick-create catalog (Task 7). Each entry lands on its section with a
  * `new` intent; the actual creation forms arrive with their feature tasks. */
 export const QUICK_CREATE_ITEMS = [
-  { label: 'New lead', href: '/leads?new=1', icon: 'Users' },
-  { label: 'New client', href: '/clients?new=1', icon: 'Contact' },
-  { label: 'New project', href: '/projects?new=1', icon: 'Hammer' },
+  { label: 'Quick intake', href: '/leads/intake', icon: 'Phone' },
+  { label: 'New lead', href: '/leads/new', icon: 'Users' },
+  { label: 'New client', href: '/clients/new', icon: 'Contact' },
+  { label: 'New project', href: '/projects/new', icon: 'Hammer' },
   { label: 'New estimate', href: '/estimates?new=1', icon: 'Calculator' },
   { label: 'New task', href: '/tasks?new=1', icon: 'ListChecks' },
   { label: 'New daily log', href: '/projects?log=1', icon: 'ClipboardList' },

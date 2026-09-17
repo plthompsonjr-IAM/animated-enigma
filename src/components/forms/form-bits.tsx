@@ -4,19 +4,33 @@ import { useFormStatus } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-/** Submit button that reflects pending form state. */
+/** Submit button that reflects pending form state. Optional name/value let a
+ * form carry two submit paths (e.g. "save & add another" vs "save & open"). */
 export function SubmitButton({
   children,
   className,
   pendingLabel = 'Working…',
+  name,
+  value,
+  variant,
 }: {
   children: React.ReactNode;
   className?: string;
   pendingLabel?: string;
+  name?: string;
+  value?: string;
+  variant?: 'default' | 'outline';
 }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className={cn('w-full', className)}>
+    <Button
+      type="submit"
+      disabled={pending}
+      name={name}
+      value={value}
+      variant={variant}
+      className={cn('w-full', className)}
+    >
       {pending ? pendingLabel : children}
     </Button>
   );

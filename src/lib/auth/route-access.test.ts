@@ -11,6 +11,14 @@ describe('route access decisions', () => {
     expect(isAuthPath('/reset-password')).toBe(true);
     expect(isPublicPath('/invite/abc123')).toBe(true);
     expect(isPublicPath('/auth/callback')).toBe(true);
+    // Client share links are public; the internal money sections are not.
+    expect(isPublicPath('/proposal/tok')).toBe(true);
+    expect(isPublicPath('/change-order/tok')).toBe(true);
+    expect(isProtectedPath('/contracts')).toBe(true);
+    expect(isProtectedPath('/change-orders/abc')).toBe(true);
+    expect(isProtectedPath('/invoices/abc')).toBe(true);
+    // The singular public path must not accidentally expose the plural one.
+    expect(isPublicPath('/change-orders/abc')).toBe(false);
   });
 
   it('unauthenticated users are redirected to login from every protected section', () => {
