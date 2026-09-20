@@ -38,11 +38,22 @@ export async function dashboardSignals(
         overdue: sql<number>`count(*) filter (
           where ${schema.projectTasks.dueDate} < current_date
         )::int`,
+        // The correlation below is written as the literal `project_tasks.id`
+        // rather than interpolating ${schema.projectTasks.id}: this query's
+        // only FROM table is project_tasks, and Drizzle only qualifies a
+        // raw-sql-interpolated column when it thinks disambiguation is
+        // needed at the query-builder level — it has no visibility into the
+        // hand-written subquery below, which re-joins project_tasks under
+        // the alias `p`. Left interpolated, both renders come out as the
+        // bare identifier "id", which Postgres then can't resolve between
+        // this correlated outer row, `p`, and `d` (error 42702, "column
+        // reference \"id\" is ambiguous") — the crash that broke first login
+        // after deploy. Qualifying it explicitly removes the ambiguity.
         blocked: sql<number>`count(*) filter (
           where exists (
             select 1 from task_dependencies d
             join project_tasks p on p.id = d.depends_on_task_id
-            where d.task_id = ${schema.projectTasks.id}
+            where d.task_id = project_tasks.id
               and p.status <> 'completed'
               and p.deleted_at is null
           )

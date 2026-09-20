@@ -2419,5 +2419,49 @@ begin
   raise notice 'PASS: calendar mirrors are invisible across organisations';
 end $$;
 
+-- ═══════════════════ Dashboard: task-count query shape (regression) ═════════
+-- The "blocked" filter in dashboardSignals correlates a subquery back to its
+-- own outer table (project_tasks) via a hand-written EXISTS clause. Proven
+-- here because Drizzle does not qualify a raw-sql-interpolated column when
+-- its query builder sees only one FROM table -- it has no visibility into a
+-- hand-written subquery that reuses that same table under an alias. Left
+-- unqualified, Postgres cannot tell the correlated outer row apart from the
+-- subquery's own task_dependencies/aliased project_tasks rows and refuses the
+-- query outright (42702, "column reference \"id\" is ambiguous") -- this
+-- broke the first organization's very first dashboard load after a real
+-- deploy, caught and fixed 2026-09-20.
+reset role;
+do $$
+declare n int;
+begin
+  insert into project_tasks (id, organization_id, project_id, title, status)
+  values
+    ('000f0aaa-0000-4000-8000-000000000001', '0000000a-0000-4000-8000-000000000001',
+     '000e0aaa-0000-4000-8000-000000000001', 'Frame the wall', 'not_started'),
+    ('000f0aaa-0000-4000-8000-000000000002', '0000000a-0000-4000-8000-000000000001',
+     '000e0aaa-0000-4000-8000-000000000001', 'Hang drywall', 'not_started');
+  insert into task_dependencies (organization_id, task_id, depends_on_task_id)
+  values ('0000000a-0000-4000-8000-000000000001',
+          '000f0aaa-0000-4000-8000-000000000002', '000f0aaa-0000-4000-8000-000000000001');
+
+  select x.blocked into n from (
+    select count(*) filter (
+      where exists (
+        select 1 from task_dependencies d
+        join project_tasks p on p.id = d.depends_on_task_id
+        where d.task_id = project_tasks.id
+          and p.status <> 'completed'
+          and p.deleted_at is null
+      )
+    )::int as blocked
+    from project_tasks
+    where organization_id = '0000000a-0000-4000-8000-000000000001'
+      and deleted_at is null
+      and status <> 'completed'
+  ) x;
+  if n <> 1 then raise exception 'FAIL: expected 1 blocked task, saw %', n; end if;
+  raise notice 'PASS: dashboard task-blocked query runs and counts correctly';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;
