@@ -46,7 +46,7 @@ function logSelection() {
     createdAt: L.createdAt,
     updatedAt: L.updatedAt,
     revisionCount: sql<number>`(
-      select count(*)::int from daily_log_revisions r where r.daily_log_id = ${L.id}
+      select count(*)::int from daily_log_revisions r where r.daily_log_id = daily_logs.id
     )`,
   };
 }

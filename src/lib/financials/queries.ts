@@ -49,22 +49,22 @@ export async function jobBillingInputs(organizationId: string): Promise<JobBilli
       status: PR.status,
       contractValue: sql<string | null>`(
         select c.contract_value from contracts c
-        where c.project_id = ${PR.id} and c.status <> 'cancelled'
+        where c.project_id = projects.id and c.status <> 'cancelled'
         order by c.created_at desc limit 1
       )`,
       // Only approved and incorporated change orders count toward the contract.
       changeOrderDelta: sql<string>`coalesce((
         select sum(co.cost_change) from change_orders co
-        where co.project_id = ${PR.id}
+        where co.project_id = projects.id
           and co.status in ('approved','incorporated')
       ), 0)`,
       invoiced: sql<string>`coalesce((
         select sum(i.total) from invoices i
-        where i.project_id = ${PR.id} and i.status not in ('draft','void')
+        where i.project_id = projects.id and i.status not in ('draft','void')
       ), 0)`,
       paid: sql<string>`coalesce((
         select sum(i.amount_paid) from invoices i
-        where i.project_id = ${PR.id} and i.status not in ('draft','void')
+        where i.project_id = projects.id and i.status not in ('draft','void')
       ), 0)`,
     })
     .from(PR)
