@@ -63,8 +63,6 @@ export async function listClients(params: ClientListParams): Promise<ClientListR
         ? [asc(C.createdAt)]
         : [desc(C.createdAt)];
 
-  const P = schema.properties;
-  const PR = schema.projects;
   const rows = await db
     .select({
       id: C.id,
@@ -74,8 +72,8 @@ export async function listClients(params: ClientListParams): Promise<ClientListR
       primaryPhone: C.primaryPhone,
       primaryEmail: C.primaryEmail,
       tags: C.tags,
-      propertyCount: sql<number>`(select count(*)::int from ${P} where ${P.clientId} = ${C.id})`,
-      projectCount: sql<number>`(select count(*)::int from ${PR} where ${PR.clientId} = ${C.id} and ${PR.deletedAt} is null)`,
+      propertyCount: sql<number>`(select count(*)::int from properties p where p.client_id = clients.id)`,
+      projectCount: sql<number>`(select count(*)::int from projects pr where pr.client_id = clients.id and pr.deleted_at is null)`,
       createdAt: C.createdAt,
     })
     .from(C)

@@ -126,7 +126,7 @@ export async function briefingInput(
           where exists (
             select 1 from task_dependencies d
             join project_tasks p on p.id = d.depends_on_task_id
-            where d.task_id = ${schema.projectTasks.id}
+            where d.task_id = project_tasks.id
               and p.status <> 'completed'
               and p.deleted_at is null
           )
@@ -205,7 +205,7 @@ export async function briefingInput(
               where ${schema.changeOrders.status} in ('approved','incorporated')
                 and not exists (
                   select 1 from invoices i
-                  where i.change_order_id = ${schema.changeOrders.id}
+                  where i.change_order_id = change_orders.id
                     and i.status <> 'draft'
                 )
             ), 0)`,
@@ -213,7 +213,7 @@ export async function briefingInput(
               where ${schema.changeOrders.status} in ('approved','incorporated')
                 and not exists (
                   select 1 from invoices i
-                  where i.change_order_id = ${schema.changeOrders.id}
+                  where i.change_order_id = change_orders.id
                     and i.status <> 'draft'
                 )
             )::int`,
@@ -236,8 +236,8 @@ export async function briefingInput(
             status: schema.timeEntries.status,
             hourlyCostRate: sql<string | null>`(
               select m.hourly_cost_rate from organization_members m
-              where m.user_id = ${schema.timeEntries.userId}
-                and m.organization_id = ${schema.timeEntries.organizationId}
+              where m.user_id = time_entries.user_id
+                and m.organization_id = time_entries.organization_id
             )`,
           })
           .from(schema.timeEntries)

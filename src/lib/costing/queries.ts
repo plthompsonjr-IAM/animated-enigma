@@ -222,7 +222,7 @@ export async function costLinesByProject(organizationId: string): Promise<
         // separate so the cost is exact rather than averaged.
         hourlyCostRate: sql<string | null>`(
           select m.hourly_cost_rate from organization_members m
-          where m.user_id = ${T.userId} and m.organization_id = ${T.organizationId}
+          where m.user_id = time_entries.user_id and m.organization_id = time_entries.organization_id
         )`,
       })
       .from(T)

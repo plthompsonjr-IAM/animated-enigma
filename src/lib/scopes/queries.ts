@@ -1,3 +1,4 @@
+import { alias } from 'drizzle-orm/pg-core';
 import { and, eq, asc, desc } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import type { VersionStatus, SectionType } from './scopes-core';
@@ -40,8 +41,8 @@ export async function getScopeVersions(
 ): Promise<ScopeVersionRow[]> {
   const db = getDb();
   const V = schema.scopeVersions;
-  const creator = schema.users;
-  const approver = schema.users;
+  const creator = alias(schema.users, 'creator');
+  const approver = alias(schema.users, 'approver');
   const rows = await db
     .select({
       id: V.id,

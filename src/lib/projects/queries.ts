@@ -1,3 +1,4 @@
+import { alias } from 'drizzle-orm/pg-core';
 import { and, eq, desc, asc, ilike, or, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { getDb, schema } from '@/db';
 import type { ProjectStatus, ProjectSort, PermitStatus, PaymentState } from './projects-core';
@@ -104,9 +105,11 @@ export async function getProject(organizationId: string, projectId: string) {
   const db = getDb();
   const P = schema.projects;
   const C = schema.clients;
-  const pm = schema.users;
-  const fm = schema.users;
-  const sp = schema.users;
+  // Three joins to the same table need distinct SQL aliases, or Drizzle refuses
+  // to build the query ("Alias \"users\" is already used in this query").
+  const pm = alias(schema.users, 'pm');
+  const fm = alias(schema.users, 'fm');
+  const sp = alias(schema.users, 'sp');
 
   const [row] = await db
     .select({
