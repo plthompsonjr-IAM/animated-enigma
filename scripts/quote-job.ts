@@ -6,18 +6,25 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-loadEnvFile('.env.local');
+async function main(): Promise<void> {
+  loadEnvFile('.env.local');
 
-const { quoteJob } = await import('../src/lib/quoting/quote-job');
+  const { quoteJob } = await import('../src/lib/quoting/quote-job');
 
-const draft = await quoteJob({
-  trade: 'interior carpentry',
-  location: 'United States national average',
-  scope:
-    'Replace one standard 60-inch interior prehung door, including removal of the existing door, a new prehung unit, basic hardware, and typical labor. Public unit-cost ranges only.',
+  const draft = await quoteJob({
+    trade: 'interior carpentry',
+    location: 'United States national average',
+    scope:
+      'Replace one standard 60-inch interior prehung door, including removal of the existing door, a new prehung unit, basic hardware, and typical labor. Public unit-cost ranges only.',
+  });
+
+  console.log(JSON.stringify(draft, null, 2));
+}
+
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
 });
-
-console.log(JSON.stringify(draft, null, 2));
 
 function loadEnvFile(filename: string): void {
   let text: string;
