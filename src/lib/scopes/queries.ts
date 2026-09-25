@@ -1,4 +1,5 @@
 import { and, eq, asc, desc } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { getDb, schema } from '@/db';
 import type { VersionStatus, SectionType } from './scopes-core';
 
@@ -40,8 +41,12 @@ export async function getScopeVersions(
 ): Promise<ScopeVersionRow[]> {
   const db = getDb();
   const V = schema.scopeVersions;
-  const creator = schema.users;
-  const approver = schema.users;
+  // Two FKs on scope_versions both point at users (who created it, who
+  // approved it). The bare table assigned to two variables isn't a real SQL
+  // alias — Drizzle throws the moment a second join targets the same
+  // underlying table — so each role gets its own alias via `alias()`.
+  const creator = alias(schema.users, 'creator');
+  const approver = alias(schema.users, 'approver');
   const rows = await db
     .select({
       id: V.id,

@@ -2463,5 +2463,73 @@ begin
   raise notice 'PASS: dashboard task-blocked query runs and counts correctly';
 end $$;
 
+-- ═══════════════════ Same-table, multiple roles (regression) ════════════════
+-- getProject (three FKs to users: project manager, foreman, salesperson) and
+-- getScopeVersions (two FKs to users: creator, approver) each join the users
+-- table more than once. Assigning the bare table to several variable names
+-- does not alias it in Drizzle -- the query builder throws ("Alias \"users\"
+-- is already used in this query") the moment a second join targets the same
+-- underlying table, before any SQL is even sent. That crashed the very first
+-- real project page opened after go-live. The fix is Drizzle's own alias()
+-- helper; proven here by running the corrected, explicitly-aliased join
+-- shape and checking each role resolves to the right person, not a
+-- collision. (The crash itself was a build-time JS exception, not a
+-- Postgres error, so it cannot be reproduced through psql -- this instead
+-- guards the corrected shape against future schema drift.)
+-- Fixture users carry only id/email (no full_name), so these checks read
+-- email through each alias -- the same join shape the app uses, just with a
+-- column guaranteed to be set.
+reset role;
+do $$
+declare pm_email text; fm_email text; sp_email text; creator_email text; approver_email text;
+begin
+  update projects set
+    project_manager_id = '00000aaa-0000-4000-8000-000000000001',
+    foreman_id = '00000ccc-0000-4000-8000-000000000003',
+    salesperson_id = '00000aaa-0000-4000-8000-000000000001'
+  where id = '000e0aaa-0000-4000-8000-000000000001';
+
+  select "project_manager".email, "foreman".email, "salesperson".email
+    into pm_email, fm_email, sp_email
+  from projects
+  left join users "project_manager" on "project_manager".id = projects.project_manager_id
+  left join users "foreman" on "foreman".id = projects.foreman_id
+  left join users "salesperson" on "salesperson".id = projects.salesperson_id
+  where projects.organization_id = '0000000a-0000-4000-8000-000000000001'
+    and projects.id = '000e0aaa-0000-4000-8000-000000000001';
+
+  if pm_email is distinct from 'alice@org-a.test' then
+    raise exception 'FAIL: project manager did not resolve to Alice (got %)', pm_email;
+  end if;
+  if fm_email is distinct from 'carl@org-a.test' then
+    raise exception 'FAIL: foreman did not resolve to Carl (got %) -- alias collision with project manager?', fm_email;
+  end if;
+  if sp_email is distinct from 'alice@org-a.test' then
+    raise exception 'FAIL: salesperson did not resolve to Alice (got %)', sp_email;
+  end if;
+  raise notice 'PASS: project manager / foreman / salesperson each resolve through their own alias';
+
+  update scope_versions set
+    created_by = '00000ccc-0000-4000-8000-000000000003',
+    approved_by = '00000aaa-0000-4000-8000-000000000001'
+  where id = '00120aaa-0000-4000-8000-000000000001';
+
+  select "creator".email, "approver".email
+    into creator_email, approver_email
+  from scope_versions
+  left join users "creator" on "creator".id = scope_versions.created_by
+  left join users "approver" on "approver".id = scope_versions.approved_by
+  where scope_versions.organization_id = '0000000a-0000-4000-8000-000000000001'
+    and scope_versions.id = '00120aaa-0000-4000-8000-000000000001';
+
+  if creator_email is distinct from 'carl@org-a.test' then
+    raise exception 'FAIL: creator did not resolve to Carl (got %)', creator_email;
+  end if;
+  if approver_email is distinct from 'alice@org-a.test' then
+    raise exception 'FAIL: approver did not resolve to Alice (got %) -- alias collision with creator?', approver_email;
+  end if;
+  raise notice 'PASS: scope-version creator / approver each resolve through their own alias';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

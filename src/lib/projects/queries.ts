@@ -1,4 +1,5 @@
 import { and, eq, desc, asc, ilike, or, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { getDb, schema } from '@/db';
 import type { ProjectStatus, ProjectSort, PermitStatus, PaymentState } from './projects-core';
 import { OPEN_PROJECT_STATUSES } from './projects-core';
@@ -104,9 +105,14 @@ export async function getProject(organizationId: string, projectId: string) {
   const db = getDb();
   const P = schema.projects;
   const C = schema.clients;
-  const pm = schema.users;
-  const fm = schema.users;
-  const sp = schema.users;
+  // Three FKs on projects all point at users (project manager, foreman,
+  // salesperson). Assigning the bare table to three variables doesn't alias
+  // it — Drizzle throws ("Alias \"users\" is already used in this query")
+  // the moment a second join targets the same underlying table, so each
+  // role needs its own real SQL alias via `alias()`.
+  const pm = alias(schema.users, 'project_manager');
+  const fm = alias(schema.users, 'foreman');
+  const sp = alias(schema.users, 'salesperson');
 
   const [row] = await db
     .select({
