@@ -1,6 +1,6 @@
 'use client';
 
-import { useFormState } from 'react-dom';
+import { useActionState } from 'react';
 import { updatePassword, type FormState } from '@/lib/auth/actions';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { SubmitButton, FormNotice } from '@/components/forms/form-bits';
 const initialState: FormState = {};
 
 export function ResetPasswordForm() {
-  const [state, formAction] = useFormState(updatePassword, initialState);
+  const [state, formAction] = useActionState(updatePassword, initialState);
 
   return (
     <form action={formAction} className="space-y-4">

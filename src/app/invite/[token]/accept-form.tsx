@@ -1,6 +1,6 @@
 'use client';
 
-import { useFormState } from 'react-dom';
+import { useActionState } from 'react';
 import { acceptInvitation } from '@/lib/auth/org-actions';
 import type { FormState } from '@/lib/auth/actions';
 import { SubmitButton, FormNotice } from '@/components/forms/form-bits';
@@ -8,7 +8,7 @@ import { SubmitButton, FormNotice } from '@/components/forms/form-bits';
 const initialState: FormState = {};
 
 export function AcceptInviteForm({ token }: { token: string }) {
-  const [state, formAction] = useFormState(acceptInvitation, initialState);
+  const [state, formAction] = useActionState(acceptInvitation, initialState);
 
   return (
     <form action={formAction} className="space-y-4">
