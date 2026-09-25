@@ -1,6 +1,6 @@
 'use client';
 
-import { useFormState } from 'react-dom';
+import { useActionState } from 'react';
 import { inviteMember, updateMemberRoles, type InviteState } from '@/lib/auth/org-actions';
 import type { FormState } from '@/lib/auth/actions';
 import { ASSIGNABLE_ROLES, ROLE_LABELS, type Role } from '@/lib/auth/rbac';
@@ -31,7 +31,7 @@ function RoleCheckboxes({ name, defaults }: { name: string; defaults?: readonly 
 }
 
 export function InviteMemberForm() {
-  const [state, formAction] = useFormState(inviteMember, inviteInitial);
+  const [state, formAction] = useActionState(inviteMember, inviteInitial);
 
   return (
     <form action={formAction} className="space-y-3">
@@ -69,7 +69,7 @@ export function MemberRolesForm({
   roles: readonly Role[];
   disabled?: boolean;
 }) {
-  const [state, formAction] = useFormState(updateMemberRoles, rolesInitial);
+  const [state, formAction] = useActionState(updateMemberRoles, rolesInitial);
 
   if (disabled) {
     return (

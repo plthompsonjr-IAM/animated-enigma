@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useFormState } from 'react-dom';
+import { useActionState } from 'react';
 import { signUp, type FormState } from '@/lib/auth/actions';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,7 +10,7 @@ import { SubmitButton, FormNotice } from '@/components/forms/form-bits';
 const initialState: FormState = {};
 
 export function RegisterForm() {
-  const [state, formAction] = useFormState(signUp, initialState);
+  const [state, formAction] = useActionState(signUp, initialState);
 
   return (
     <form action={formAction} className="space-y-4">
