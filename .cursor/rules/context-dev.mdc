@@ -1,0 +1,17 @@
+---
+description: Context.dev server-side web research for draft job quotes
+alwaysApply: true
+---
+
+# Context.dev
+
+Server-side web research for draft job quotes. The API key is a secret.
+
+- Env var: `CONTEXT_DEV_API_KEY` in `.env.local` (placeholder in `.env.example`). Read it through `serverEnv()` in `src/lib/env.ts`. Never hardcode it and never import the client from a Client Component.
+- Wrapper: `src/lib/context-dev/client.ts` is the only module that constructs the Context.dev client. SDK retries are disabled there (`maxRetries: 0`) so this wrapper owns retry behavior. Job quotes call `quoteJob` in `src/lib/quoting/quote-job.ts`.
+- Endpoint: `POST /web/answers` in `fast` mode (10 credits). Ultra mode is 100 credits and stays off unless a task explicitly needs the deeper budget.
+  - Guide: https://docs.context.dev/guides/research-web-with-answers.md
+  - Reference: https://docs.context.dev/api-reference/web-extraction/answers.md
+- The Answers request has no `maxAgeMs`. Page reads are fresh. Keep `partial` and `sources` on every draft so a person can check the numbers before a bid.
+- Retry: honor `Retry-After` (or `retry-after-ms`) on 429, with a 1 second fallback when the header is missing. Retry 408, 5xx, and connection failures up to 2 times with exponential backoff starting at 250ms. Do not retry validation or auth errors (400, 401, 403).
+- Tests must mock the wrapper or pass a fake `answers` function into `quoteJob`. Do not call the live API from automated tests. The one-shot proof script is `pnpm exec tsx --conditions=react-server scripts/quote-job.ts`.
