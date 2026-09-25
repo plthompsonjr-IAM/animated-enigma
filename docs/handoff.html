@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PT's Tactical Foreman — Build Handoff</title>
+<style>
+  @page { margin: 16mm; }
+  :root {
+    --ink: hsl(20 14% 10%);
+    --muted: hsl(20 6% 42%);
+    --line: hsl(20 6% 86%);
+    --brand: hsl(24 94% 50%);
+    --bad: hsl(0 72% 45%);
+    --good: hsl(152 60% 32%);
+    --wash: hsl(24 94% 50% / 0.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    color: var(--ink);
+    background: #fff;
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    margin: 0;
+  }
+  header.cover {
+    border-bottom: 3px solid var(--brand);
+    padding-bottom: 14px;
+    margin-bottom: 20px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 40px; border-radius: 6px;
+    background: var(--brand); color: #fff; font-weight: 800; font-size: 15px; flex: none;
+  }
+  .orgname { font-size: 17px; font-weight: 800; line-height: 1.2; }
+  .tagline { color: var(--muted); font-size: 10px; }
+  h1 { font-size: 21px; margin: 14px 0 4px; }
+  .sub { color: var(--muted); font-size: 10.5px; margin: 0; }
+  h2 {
+    font-size: 14px; margin: 22px 0 8px; padding-bottom: 4px;
+    border-bottom: 2px solid var(--line); break-after: avoid;
+  }
+  h3 { font-size: 11.5px; margin: 14px 0 4px; break-after: avoid; }
+  p { margin: 0 0 8px; }
+  ul, ol { margin: 0 0 8px; padding-left: 18px; }
+  li { margin-bottom: 3px; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-bottom: 10px; }
+  th {
+    text-align: left; font-size: 8.5pt; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); border-bottom: 1px solid hsl(20 6% 75%); padding: 5px 6px 4px 0;
+  }
+  td { padding: 5px 6px 5px 0; border-bottom: 1px solid hsl(20 6% 93%); vertical-align: top; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9pt;
+         background: hsl(20 6% 95%); padding: 1px 4px; border-radius: 3px; }
+  .box { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;
+         break-inside: avoid; }
+  .box.warn { border-color: hsl(38 92% 50% / .5); background: hsl(38 92% 50% / .08); }
+  .box.stop { border-color: hsl(0 72% 45% / .45); background: hsl(0 72% 45% / .07); }
+  .box.ok   { border-color: hsl(152 60% 32% / .4); background: hsl(152 60% 32% / .07); }
+  .box.brand { border-color: hsl(24 94% 50% / .4); background: var(--wash); }
+  .box h3 { margin-top: 0; }
+  .stats { display: flex; gap: 8px; margin-bottom: 12px; }
+  .stat { flex: 1; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; }
+  .stat .n { font-size: 16px; font-weight: 800; }
+  .stat .l { font-size: 8pt; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .bad { color: var(--bad); font-weight: 600; }
+  .good { color: var(--good); font-weight: 600; }
+  .pill { display: inline-block; font-size: 8pt; font-weight: 700; text-transform: uppercase;
+          letter-spacing: .04em; padding: 1px 6px; border-radius: 20px; }
+  .pill.done { background: hsl(152 60% 32% / .15); color: var(--good); }
+  .pill.todo { background: hsl(20 6% 90%); color: var(--muted); }
+  .pill.block { background: hsl(0 72% 45% / .13); color: var(--bad); }
+  footer { margin-top: 26px; padding-top: 8px; border-top: 1px solid var(--line);
+           font-size: 8.5pt; color: var(--muted); }
+  .page-break { break-before: page; }
+  @media print { * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
+</style>
+</head>
+<body>
+
+<header class="cover">
+  <div class="brand">
+    <span class="mark">PT</span>
+    <div>
+      <div class="orgname">PT's Tactical Renovations</div>
+      <div class="tagline">Your Home, Our Mission.</div>
+    </div>
+  </div>
+  <h1>Tactical Foreman — Build Handoff</h1>
+  <p class="sub">
+    Prepared by Claude (Opus 5) for the next agent picking this up · 11 August 2026<br>
+    Repository <code>plthompsonjr-IAM/animated-enigma</code> · branch <code>claude/tactical-foreman-build-m7i3ng</code> · PR&nbsp;#6
+  </p>
+</header>
+
+<div class="box brand">
+  <h3>Read this first</h3>
+  <p style="margin-bottom:0">
+    This document is written to be accurate rather than flattering. Where something is built
+    but <strong>unverified</strong>, it says so. Where a number is quoted, it was measured, not
+    estimated. Please keep that standard — the entire value of this system to Patrick is that
+    its numbers can be trusted, and a confident claim that turns out to be wrong costs more
+    than an admitted gap.
+  </p>
+</div>
+
+<h2>1. Where the build stands</h2>
+
+<div class="stats">
+  <div class="stat"><div class="n">29 / 50</div><div class="l">Tasks complete</div></div>
+  <div class="stat"><div class="n">584</div><div class="l">Unit tests</div></div>
+  <div class="stat"><div class="n">160</div><div class="l">RLS assertions</div></div>
+  <div class="stat"><div class="n">47</div><div class="l">Tables, all RLS-forced</div></div>
+</div>
+
+<p>
+  Tasks 1–29 are complete, tested, committed, pushed, and applied to the live Supabase project
+  (<code>zhlkfuvscnblkkyfticz</code>). Typecheck, lint, and the production build are clean.
+  Migrations through <code>0043</code> are applied and verified on the live database.
+</p>
+
+<table>
+  <thead><tr><th style="width:22%">Area</th><th style="width:12%">State</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Identity, tenancy, RBAC</td><td><span class="pill done">Done</span></td><td>9 roles, 40+ permissions, multi-tenant RLS enforced at the database</td></tr>
+    <tr><td>Leads → clients → projects</td><td><span class="pill done">Done</span></td><td>Full CRM pipeline with conversion</td></tr>
+    <tr><td>Scopes, estimates, proposals</td><td><span class="pill done">Done</span></td><td>Immutable version snapshots; client never sees cost or margin</td></tr>
+    <tr><td>E-signature</td><td><span class="pill done">Done</span></td><td>Append-only at the DB level, including against the app's own role</td></tr>
+    <tr><td>Contracts, change orders</td><td><span class="pill done">Done</span></td><td>Revised value derived, never mutated; freeze triggers on signed records</td></tr>
+    <tr><td>Invoices, payments</td><td><span class="pill done">Done</span></td><td>Allocations, aging, project budget rollup</td></tr>
+    <tr><td>Scheduling</td><td><span class="pill done">Done</span></td><td>Calendar-day work items, crew assignment, cross-job conflict detection</td></tr>
+    <tr><td>Field tasks, punch lists</td><td><span class="pill done">Done</span></td><td>Dependencies with blocking derived at read time</td></tr>
+    <tr><td>Daily logs</td><td><span class="pill done">Done</span></td><td>Controlled edit window + append-only revision history</td></tr>
+    <tr><td>Photos &amp; documents</td><td><span class="pill block">Unverified</span></td><td>Built; private bucket created; <strong>no upload has ever been performed</strong></td></tr>
+    <tr><td>Dashboard, financials</td><td><span class="pill done">Done</span></td><td>Triage-first dashboard; A/R aging; real margin</td></tr>
+    <tr><td>Job costing</td><td><span class="pill done">Done</span></td><td>Time + expenses; margin from finished jobs only</td></tr>
+    <tr><td>AI Foreman</td><td><span class="pill todo">Not started</span></td><td>The only remaining placeholder screen</td></tr>
+  </tbody>
+</table>
+
+<h2>2. What is NOT verified — do not assume otherwise</h2>
+
+<div class="box stop">
+  <h3>File upload has never been exercised end to end</h3>
+  <p style="margin-bottom:0">
+    The <code>project-files</code> bucket exists and is private. The upload code, validation, signed-URL
+    minting, and org-scoped path constraint are all written and unit-tested. <strong>But no actual file
+    has been pushed through the path.</strong> Treat this as unproven until someone uploads a photo from
+    a real project page and sees it render. This is the single most likely place a latent bug is sitting.
+  </p>
+</div>
+
+<div class="box warn">
+  <h3>No end-to-end browser testing exists anywhere</h3>
+  <p style="margin-bottom:0">
+    Every test is a unit test or a database assertion. No flow has been driven through a browser:
+    not signup, not the client proposal link, not e-signature, not clock-in. The unit tests are
+    thorough and the database rules are proven, but the wiring between them is only proven by the
+    production build compiling. See the Playwright recommendation in §6.
+  </p>
+</div>
+
+<div class="box warn">
+  <h3>Email delivery does not exist</h3>
+  <p style="margin-bottom:0">
+    Every client-facing link — proposal, change-order approval, invoice — is generated correctly
+    and then must be <strong>copy-pasted by hand</strong>. Nothing is sent. This is the largest
+    functional gap in the product and it is blocked on an API key.
+  </p>
+</div>
+
+<h2 class="page-break">3. Blocked on Patrick — nothing moves without these</h2>
+
+<table>
+  <thead><tr><th style="width:26%">Item</th><th style="width:16%">Blocks</th><th>Why it matters</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Hourly cost rates per person</strong><br><span class="muted">Settings → Team</span></td>
+      <td>All margin reporting</td>
+      <td>Burdened cost to the business, not wages. Until set, labour is not costed and every margin is understated. The app deliberately shows nothing rather than guessing — a made-up rate would poison every job invisibly.</td>
+    </tr>
+    <tr>
+      <td><strong>Email provider API key</strong><br><span class="muted">Resend or Postmark</span></td>
+      <td>All client communication</td>
+      <td>Without it the product cannot send anything to a client.</td>
+    </tr>
+    <tr>
+      <td><strong>Attorney review of contract terms</strong></td>
+      <td>Sending any contract</td>
+      <td>The starter template carries visible <code>[BRACKETED]</code> blanks and the app warns while any remain. The <strong>Ohio-specific right-to-cancel wording is the priority item</strong> — it is state-regulated and the current text is a placeholder.</td>
+    </tr>
+    <tr>
+      <td><strong>Payment processing decision</strong></td>
+      <td>Client self-service payment</td>
+      <td>Payments are currently recorded by hand. No card processing, no client portal payment.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>4. Architecture you must not break</h2>
+
+<div class="box stop">
+  <h3>The security model — read this before touching the database</h3>
+  <p>
+    <strong>The application connects to Postgres as a role with <code>BYPASSRLS</code>.</strong> This means
+    <code>ALTER TABLE … ENABLE ROW LEVEL SECURITY</code> does <em>nothing</em> on its own.
+  </p>
+  <p style="margin-bottom:0">
+    Every tenant table needs <strong><code>ENABLE</code> and <code>FORCE</code></strong>. A table with only
+    <code>ENABLE</code> leaks one contractor's jobs into another contractor's account, silently, with no
+    error anywhere. <code>scripts/test-setup-sql.sh</code> fails the build if any table is missing either.
+    Never disable that check.
+  </p>
+</div>
+
+<h3>The shape every feature follows</h3>
+<p>Do not invent a new structure. Every domain is built the same way, in this order:</p>
+<ol>
+  <li><code>src/lib/&lt;domain&gt;/&lt;domain&gt;-core.ts</code> — pure logic, zero I/O. <strong>This is where the real decisions live.</strong> Build it first and test it exhaustively.</li>
+  <li><code>&lt;domain&gt;-core.test.ts</code> — happy path, every rejection, both boundaries, degenerate input.</li>
+  <li><code>queries.ts</code> — reads, always org-scoped.</li>
+  <li><code>actions.ts</code> — <code>'use server'</code> writes behind a permission gate.</li>
+  <li><code>src/components/&lt;domain&gt;/</code> — presentation.</li>
+  <li>Migrations + RLS assertions.</li>
+</ol>
+
+<h3>Conventions that hold everywhere</h3>
+<ul>
+  <li><strong>Money is <code>numeric(14,2)</code>, hours <code>numeric(12,4)</code>.</strong> Never floats.</li>
+  <li><strong>A calendar day is <code>date</code>, not <code>timestamptz</code>.</strong> A crew frames Tuesday through Friday; storing that as an instant makes the day shift with whoever reads it. This has already caused one real bug.</li>
+  <li><strong>Say nothing rather than zero.</strong> A job with no contract has <code>null</code>, not <code>0</code>. Null renders as "—"; zero renders as a lie.</li>
+  <li><strong>Push invariants into the database</strong> when a query would otherwise have to defend against them: derived values by trigger, freeze triggers on issued records, append-only for evidence, exclusion constraints for overlap.</li>
+  <li><strong>Gate at the query, not the render.</strong> Someone without <code>financials:read</code> should never have the amounts <em>fetched</em>.</li>
+  <li><strong>The nav is fixed at twelve sections.</strong> Do not add to it.</li>
+</ul>
+
+<h3>Judgement calls already made — please honour them</h3>
+<ul>
+  <li><strong>Cost-to-date on a running job is not margin.</strong> A job 30% built and 50% billed looks wonderful and isn't. Company margin is computed from <em>finished jobs only</em>.</li>
+  <li><strong>Contract value is never mutated.</strong> Revised value is derived as original + approved change orders.</li>
+  <li><strong>Nothing is client-visible by default.</strong> A photo of an open wall is internal until somebody decides otherwise.</li>
+  <li><strong>Daily logs lock after a controlled window.</strong> Corrections go in a later log; the record is never rewritten. This is what makes it hold up in a delay claim.</li>
+</ul>
+
+<h2 class="page-break">5. What to build next</h2>
+
+<table>
+  <thead><tr><th style="width:8%">Task</th><th style="width:26%">What</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td><strong>30</strong></td><td>AI Foreman</td><td>The last placeholder. It now has real material: schedule conflicts, cost overruns, aging receivables, log gaps, blocked tasks. <strong>Every AI action must be a reviewable draft, never an autonomous write.</strong> Cite sources from the job record.</td></tr>
+    <tr><td><strong>31–33</strong></td><td>Email + notifications</td><td>Provider integration, templates, approval-gated sending, per-user preferences. Unblocks the biggest functional gap.</td></tr>
+    <tr><td><strong>34–36</strong></td><td>Client &amp; subcontractor portals</td><td>Strict data boundaries. The <code>client_visible</code> flags and portal RLS policies are already designed in <code>docs/database-schema.md §8.4</code>.</td></tr>
+    <tr><td><strong>37–40</strong></td><td>Subcontractors, reports, exports, audit log</td><td>CSV/PDF export; audit history.</td></tr>
+    <tr><td><strong>41–45</strong></td><td>Settings, security review, automated test suite</td><td>This is where E2E testing belongs.</td></tr>
+    <tr><td><strong>46</strong></td><td>Production deployment</td><td>SSL, backups, error monitoring, rollback procedure, launch checklist.</td></tr>
+    <tr><td><strong>47–50</strong></td><td>Voice field ops, photo AI, permits, warranty</td><td>Post-MVP. Photo AI needs explicit "this is not an inspection" disclaimers.</td></tr>
+  </tbody>
+</table>
+
+<h2>6. Recommendations</h2>
+
+<h3>Three skills to carry forward</h3>
+<p class="muted" style="font-size:9.5pt">
+  These already exist in <code>.claude/skills/</code>. They encode the parts of this build that were
+  repetitive, fiddly, or security-critical. Read them before writing code.
+</p>
+<table>
+  <thead><tr><th style="width:22%">Skill</th><th>What it prevents</th></tr></thead>
+  <tbody>
+    <tr><td><code>domain-slice</code></td><td>Reinventing the architecture. Encodes the seven-part shape, the pure-core-first order, and the two bug classes that keep surfacing: timezone assumptions and rounding that must sum to 100.</td></tr>
+    <tr><td><code>db-change</code></td><td>The tenant leak. Covers the two-file migration pattern, the journal/snapshot chaining, the empty <code>search_path</code> the Supabase advisor flags, and verifying <code>FORCE</code> on the live database rather than assuming it.</td></tr>
+    <tr><td><code>ship-check</code></td><td>Claiming green when it is red. Includes the SQL-shape smoke test — unit tests never touch a database and the build never runs a query, so a wrong enum value compiles, passes, ships, and throws on first page load. That check has already caught two real bugs.</td></tr>
+  </tbody>
+</table>
+
+<h3>Three connectors that would move the product furthest</h3>
+<table>
+  <thead><tr><th style="width:20%">Connector</th><th style="width:14%">Priority</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Resend</strong><br><span class="muted">or Postmark</span></td>
+      <td><span class="pill block">Critical</span></td>
+      <td>Unblocks every client-facing flow at once — proposals, change-order approvals, invoices, reminders. Nothing else in the backlog delivers as much per hour of work. Postmark has better deliverability for transactional mail; Resend has the simpler API. Either is fine; pick one and wire it behind a small <code>src/lib/email/</code> module so the provider stays swappable.</td>
+    </tr>
+    <tr>
+      <td><strong>Stripe</strong></td>
+      <td><span class="pill block">High</span></td>
+      <td>Contractors get paid faster when the client can pay from the invoice. The invoice ledger, allocations, and payment records are already built and tested — Stripe only needs to feed <code>payments</code>. Use Payment Links or Checkout first; a full portal can come later. <strong>Note:</strong> the invoice freeze trigger deliberately permits <code>amount_paid</code> updates on an issued invoice, so webhook writes will work without loosening anything.</td>
+    </tr>
+    <tr>
+      <td><strong>Google Calendar</strong><br><span class="muted">or Twilio SMS</span></td>
+      <td><span class="pill todo">Medium</span></td>
+      <td>Calendar: crew assignments already exist as dated work items with people attached — syncing them to phones is a small step with real field value, and <code>site_visits</code> already carries a <code>google_event_id</code> slot for exactly this. Twilio is the alternative if the crew reality is "nobody reads email" — SMS reaches a jobsite where email does not. Pick based on how Patrick's crew actually communicates, not on which is easier.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Three plugins / tools to add</h3>
+<table>
+  <thead><tr><th style="width:20%">Tool</th><th style="width:14%">Priority</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Playwright</strong></td>
+      <td><span class="pill block">Critical</span></td>
+      <td>The largest hole in the test strategy. 584 unit tests and 160 database assertions prove the pieces; <em>nothing</em> proves they are wired together. Start with the four flows where a break is invisible and expensive: <strong>file upload</strong> (never exercised at all), the public proposal link and e-signature, clock-in/clock-out, and invoice issue → payment. Chromium is already installed in the dev container.</td>
+    </tr>
+    <tr>
+      <td><strong>Sentry</strong></td>
+      <td><span class="pill todo">High</span></td>
+      <td>Before Task 46. A contractor on a roof will not file a bug report — they will stop using the app. Server-action errors are currently logged to stdout and vanish. Sentry's Next.js SDK captures both server and client. Scrub the payloads: this app holds client addresses, contract values, and pay-inferable hours.</td>
+    </tr>
+    <tr>
+      <td><strong>Vercel</strong><br><span class="muted">+ Supabase branching</span></td>
+      <td><span class="pill todo">High</span></td>
+      <td>Next.js 15 deploys there with the least friction, and preview deployments per PR would have caught things this build could only catch by reasoning. Pair with Supabase branching so migrations get tested against a real database copy before touching production. Required groundwork for Task 46 regardless of the host chosen.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>7. Guardrails already in place</h2>
+<p>
+  Four hooks live in <code>.claude/settings.json</code>. They enforce rules that were otherwise held
+  only by an agent remembering them. <strong>Please leave them on.</strong>
+</p>
+<table>
+  <thead><tr><th style="width:30%">Hook</th><th style="width:16%">Event</th><th>Does</th></tr></thead>
+  <tbody>
+    <tr><td><code>verify-evidence.sh</code></td><td>Stop</td><td>Runs typecheck, lint, tests (+ RLS suite when SQL changed). <strong>Blocks the turn on failure.</strong> Prints the real counts so reports quote measurements rather than assertions.</td></tr>
+    <tr><td><code>check-schema-completeness.sh</code></td><td>Stop</td><td>Names which of the four schema follow-through steps are still missing. Skipping the RLS file is a tenant leak; skipping the setup mirror means the next fresh deploy is silently missing a table.</td></tr>
+    <tr><td><code>guard-push.sh</code></td><td>PreToolUse</td><td><strong>Denies</strong> pushes to any branch but the designated one, and denies force-pushes.</td></tr>
+    <tr><td><code>session-state.sh</code></td><td>SessionStart</td><td>Reports branch, working state, migration count, and what is blocked on Patrick.</td></tr>
+  </tbody>
+</table>
+
+<div class="box ok">
+  <h3>The one rule that matters most</h3>
+  <p style="margin-bottom:0">
+    <strong>Never invent completed integrations, credentials, or test results.</strong> If something was
+    not run, say it was not run. If a migration is sitting unapplied, say so in the commit message —
+    not just in chat, because chat scrolls away and the commit does not. Patrick is a contractor
+    making real financial decisions from these numbers. An admitted gap costs him ten minutes; a
+    confident wrong answer costs him a job.
+  </p>
+</div>
+
+<footer>
+  PT's Tactical Foreman — build handoff · Tasks 1–29 complete · 584 unit tests, 160 RLS assertions,
+  47 tables all RLS-forced · Repository <code>plthompsonjr-IAM/animated-enigma</code>, branch
+  <code>claude/tactical-foreman-build-m7i3ng</code>, PR&nbsp;#6 · Every figure in this document was
+  measured at time of writing, not estimated.
+</footer>
+
+</body>
+</html>

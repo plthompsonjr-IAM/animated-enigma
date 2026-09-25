@@ -4,6 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import {
   Plus,
+  Phone,
   Users,
   Contact,
   Hammer,
@@ -19,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 const ICONS: Record<string, LucideIcon> = {
+  Phone,
   Users,
   Contact,
   Hammer,

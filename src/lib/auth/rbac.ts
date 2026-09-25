@@ -52,6 +52,7 @@ export const PERMISSIONS = [
   'financials:read',
   'financials:write',
   'costs:read', // internal cost & margin visibility
+  'costs:write', // recording job costs: time approval, expenses, cost rates
   // AI
   'ai:use',
   // portals
@@ -85,6 +86,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'financials:read',
     'financials:write',
     'costs:read',
+    'costs:write',
     'ai:use',
   ],
   estimator: [
@@ -113,6 +115,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     'estimates:read',
     'financials:read',
     'costs:read',
+    'costs:write',
     'ai:use',
   ],
   field_foreman: [
