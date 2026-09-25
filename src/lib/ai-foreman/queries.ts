@@ -122,11 +122,18 @@ export async function briefingInput(
         overdue: sql<number>`count(*) filter (
           where ${schema.projectTasks.dueDate} < ${day}
         )::int`,
+        // Written as the literal `project_tasks.id` rather than interpolating
+        // ${schema.projectTasks.id}: this query's only FROM table is
+        // project_tasks, so Drizzle leaves the interpolated column
+        // unqualified — and the subquery below re-joins project_tasks under
+        // the alias `p`, so an unqualified "id" is genuinely ambiguous to
+        // Postgres between the outer row, `p`, and `d` (error 42702). Same
+        // root cause as the dashboard's task-count query.
         blocked: sql<number>`count(*) filter (
           where exists (
             select 1 from task_dependencies d
             join project_tasks p on p.id = d.depends_on_task_id
-            where d.task_id = ${schema.projectTasks.id}
+            where d.task_id = project_tasks.id
               and p.status <> 'completed'
               and p.deleted_at is null
           )
@@ -201,11 +208,20 @@ export async function briefingInput(
             approved: sql<string>`coalesce(sum(${schema.changeOrders.costChange}) filter (
               where ${schema.changeOrders.status} in ('approved','incorporated')
             ), 0)`,
+            // Written as the literal `change_orders.id` rather than interpolating
+            // ${schema.changeOrders.id}: a select-list sql template is never
+            // table-qualified by Drizzle, so the interpolated column would
+            // render as bare "id" — which the invoices subquery's own scope
+            // (just `invoices i`) resolves unambiguously to *i.id*, not the
+            // outer change order. That silently turns the correlation into
+            // "i.change_order_id = i.id" — never true — so every approved
+            // change order would count as unbilled even when it's been
+            // invoiced. No Postgres error, just a wrong number.
             unbilled: sql<string>`coalesce(sum(${schema.changeOrders.costChange}) filter (
               where ${schema.changeOrders.status} in ('approved','incorporated')
                 and not exists (
                   select 1 from invoices i
-                  where i.change_order_id = ${schema.changeOrders.id}
+                  where i.change_order_id = change_orders.id
                     and i.status <> 'draft'
                 )
             ), 0)`,
@@ -213,7 +229,7 @@ export async function briefingInput(
               where ${schema.changeOrders.status} in ('approved','incorporated')
                 and not exists (
                   select 1 from invoices i
-                  where i.change_order_id = ${schema.changeOrders.id}
+                  where i.change_order_id = change_orders.id
                     and i.status <> 'draft'
                 )
             )::int`,
@@ -234,10 +250,20 @@ export async function briefingInput(
           .select({
             hours: sql<string>`coalesce(sum(${schema.timeEntries.hours}), 0)`,
             status: schema.timeEntries.status,
+            // Written as literal `time_entries.user_id`/`.organization_id`
+            // rather than interpolating ${schema.timeEntries.userId} etc: a
+            // select-list sql template is never table-qualified by Drizzle,
+            // and organization_members has its own columns of those exact
+            // names — so the unqualified reference resolves to *m*'s own
+            // row, not the outer time entry, turning the correlation into
+            // "m.user_id = m.user_id" (always true). That drops the
+            // one-row guarantee a scalar subquery needs and throws "more
+            // than one row returned by a subquery used as an expression"
+            // the moment more than one member exists — which is always.
             hourlyCostRate: sql<string | null>`(
               select m.hourly_cost_rate from organization_members m
-              where m.user_id = ${schema.timeEntries.userId}
-                and m.organization_id = ${schema.timeEntries.organizationId}
+              where m.user_id = time_entries.user_id
+                and m.organization_id = time_entries.organization_id
             )`,
           })
           .from(schema.timeEntries)

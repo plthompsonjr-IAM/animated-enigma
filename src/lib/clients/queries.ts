@@ -74,8 +74,15 @@ export async function listClients(params: ClientListParams): Promise<ClientListR
       primaryPhone: C.primaryPhone,
       primaryEmail: C.primaryEmail,
       tags: C.tags,
-      propertyCount: sql<number>`(select count(*)::int from ${P} where ${P.clientId} = ${C.id})`,
-      projectCount: sql<number>`(select count(*)::int from ${PR} where ${PR.clientId} = ${C.id} and ${PR.deletedAt} is null)`,
+      // Written as literal `clients.id` rather than interpolating ${C.id}:
+      // this query's only top-level table is clients, so a select-list sql
+      // template is never table-qualified by Drizzle — and properties/projects
+      // each have their own "id" column, so the unqualified reference resolved
+      // to the subquery's own row, not the outer client. Every count silently
+      // came back near-zero instead of erroring, which is worse: a lying zero
+      // on a client with real properties and jobs.
+      propertyCount: sql<number>`(select count(*)::int from ${P} where ${P.clientId} = clients.id)`,
+      projectCount: sql<number>`(select count(*)::int from ${PR} where ${PR.clientId} = clients.id and ${PR.deletedAt} is null)`,
       createdAt: C.createdAt,
     })
     .from(C)

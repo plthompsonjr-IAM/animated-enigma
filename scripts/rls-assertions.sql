@@ -2531,5 +2531,124 @@ begin
   raise notice 'PASS: scope-version creator / approver each resolve through their own alias';
 end $$;
 
+-- ═══ Select-list raw-sql interpolation is never table-qualified (regression) ═
+-- Four places built a hand-written correlated subquery inside a *select-list*
+-- sql`` field, interpolating the outer (single-table) query's own column.
+-- Drizzle only table-qualifies a raw-sql column reference in the WHERE
+-- clause -- never in SELECT -- so each rendered as a bare, unqualified
+-- identifier that Postgres resolved to the *inner* subquery's own
+-- same-named column instead of the outer row: clients' propertyCount /
+-- projectCount (properties and projects each have their own "id"),
+-- ai-foreman's unbilled-change-order sum (invoices has its own "id"), and
+-- the hourlyCostRate scalar subquery in both ai-foreman and costing
+-- (organization_members has its own user_id / organization_id). The first
+-- three came back silently wrong -- zeros where real data existed -- and
+-- the last throws "more than one row returned by a subquery used as an
+-- expression" once a second org member exists. Fixed by writing the
+-- correlation as a literal, table-qualified identifier instead of
+-- interpolating the Drizzle column object.
+reset role;
+
+insert into clients (id, organization_id, display_name)
+  values ('000c0aaa-0000-4000-8000-0000000000f1', '0000000a-0000-4000-8000-000000000001',
+          'Regression Client (select-list qualification)');
+insert into properties (id, organization_id, client_id, address) values
+  ('000d0aaa-0000-4000-8000-0000000000f1', '0000000a-0000-4000-8000-000000000001',
+   '000c0aaa-0000-4000-8000-0000000000f1', '{"line1":"1 Test Way"}'),
+  ('000d0aaa-0000-4000-8000-0000000000f2', '0000000a-0000-4000-8000-000000000001',
+   '000c0aaa-0000-4000-8000-0000000000f1', '{"line1":"2 Test Way"}');
+insert into projects (id, organization_id, project_number, name, client_id, status) values
+  ('000e0aaa-0000-4000-8000-0000000000f1', '0000000a-0000-4000-8000-000000000001',
+   'REG-0001', 'Regression Project', '000c0aaa-0000-4000-8000-0000000000f1', 'in_progress');
+
+insert into change_orders
+  (id, organization_id, project_id, change_order_number, status, cost_change) values
+  ('00250aaa-0000-4000-8000-0000000000f1', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-0000000000f1', 'CO-REG-0001', 'approved', 500.00),
+  ('00250aaa-0000-4000-8000-0000000000f2', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-0000000000f1', 'CO-REG-0002', 'approved', 700.00);
+insert into invoices
+  (id, organization_id, project_id, client_id, invoice_number, invoice_type, status,
+   change_order_id, subtotal, total, balance)
+  values
+  ('00260aaa-0000-4000-8000-0000000000f1', '0000000a-0000-4000-8000-000000000001',
+   '000e0aaa-0000-4000-8000-0000000000f1', '000c0aaa-0000-4000-8000-0000000000f1',
+   'INV-REG-0001', 'progress', 'sent', '00250aaa-0000-4000-8000-0000000000f2',
+   700.00, 700.00, 700.00);
+
+-- Carl gets a cost rate; Alice (also Org A) keeps none -- two members, one
+-- rated, one not, is exactly the shape that makes the buggy hourlyCostRate
+-- subquery's "more than one row" crash unavoidable.
+update organization_members set hourly_cost_rate = 45.00
+  where organization_id = '0000000a-0000-4000-8000-000000000001'
+    and user_id = '00000ccc-0000-4000-8000-000000000003';
+insert into time_entries (organization_id, user_id, project_id, clock_in, clock_out) values
+  ('0000000a-0000-4000-8000-000000000001', '00000ccc-0000-4000-8000-000000000003',
+   '000e0aaa-0000-4000-8000-0000000000f1', now() - interval '2 hours', now());
+
+do $$
+declare property_count int; project_count int;
+declare unbilled numeric; unbilled_count int;
+declare carl_rate numeric;
+begin
+  -- Client property/project counts resolve through the corrected correlation.
+  select
+    (select count(*)::int from properties where client_id = clients.id),
+    (select count(*)::int from projects where client_id = clients.id and deleted_at is null)
+    into property_count, project_count
+  from clients where id = '000c0aaa-0000-4000-8000-0000000000f1';
+  if property_count <> 2 then
+    raise exception 'FAIL: expected 2 properties via qualified correlation, saw %', property_count;
+  end if;
+  if project_count <> 1 then
+    raise exception 'FAIL: expected 1 project via qualified correlation, saw %', project_count;
+  end if;
+  raise notice 'PASS: client property/project counts resolve through the qualified correlation';
+
+  -- Unbilled change-order sum: CO-REG-0001 has no invoice (unbilled, $500);
+  -- CO-REG-0002 is billed via the invoice above and must be excluded.
+  select
+    coalesce(sum(cost_change) filter (
+      where status in ('approved','incorporated')
+        and not exists (
+          select 1 from invoices i
+          where i.change_order_id = change_orders.id and i.status <> 'draft'
+        )
+    ), 0),
+    count(*) filter (
+      where status in ('approved','incorporated')
+        and not exists (
+          select 1 from invoices i
+          where i.change_order_id = change_orders.id and i.status <> 'draft'
+        )
+    )
+    into unbilled, unbilled_count
+  from change_orders
+  where organization_id = '0000000a-0000-4000-8000-000000000001'
+    and project_id = '000e0aaa-0000-4000-8000-0000000000f1';
+  if unbilled <> 500.00 then
+    raise exception 'FAIL: expected $500 unbilled, saw % -- billed change order leaking in, or unbilled one dropped', unbilled;
+  end if;
+  if unbilled_count <> 1 then
+    raise exception 'FAIL: expected 1 unbilled change order, saw %', unbilled_count;
+  end if;
+  raise notice 'PASS: unbilled change-order sum excludes the billed one via the qualified correlation';
+
+  -- hourlyCostRate scalar subquery resolves to the correlated member's own
+  -- rate rather than throwing on Org A's second member.
+  select (
+    select m.hourly_cost_rate from organization_members m
+    where m.user_id = time_entries.user_id and m.organization_id = time_entries.organization_id
+  ) into carl_rate
+  from time_entries
+  where organization_id = '0000000a-0000-4000-8000-000000000001'
+    and user_id = '00000ccc-0000-4000-8000-000000000003'
+    and project_id = '000e0aaa-0000-4000-8000-0000000000f1';
+  if carl_rate <> 45.00 then
+    raise exception 'FAIL: expected Carl''s rate 45.00, saw %', carl_rate;
+  end if;
+  raise notice 'PASS: hourlyCostRate resolves the correlated member''s rate without erroring';
+end $$;
+
 reset role;
 select 'ALL RLS ASSERTIONS PASSED' as result;

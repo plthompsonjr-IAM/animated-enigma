@@ -220,9 +220,20 @@ export async function costLinesByProject(organizationId: string): Promise<
         hours: sql<string>`coalesce(sum(${T.hours}), 0)`,
         // Hours at one rate collapse into a single line; different rates stay
         // separate so the cost is exact rather than averaged.
+        //
+        // Written as literal `time_entries.user_id`/`.organization_id` rather
+        // than interpolating ${T.userId} etc: this query has only `time_entries`
+        // at the top level, so a select-list sql template never gets
+        // table-qualified by Drizzle — and organization_members has columns of
+        // those exact names, so the unqualified reference resolves to *m*'s
+        // own row instead of the outer time entry. That silently drops the
+        // correlation ("m.user_id = m.user_id" is always true), so the scalar
+        // subquery sees every org member instead of one and throws "more than
+        // one row returned by a subquery used as an expression" whenever more
+        // than one member exists — which margins depend on this being right.
         hourlyCostRate: sql<string | null>`(
           select m.hourly_cost_rate from organization_members m
-          where m.user_id = ${T.userId} and m.organization_id = ${T.organizationId}
+          where m.user_id = time_entries.user_id and m.organization_id = time_entries.organization_id
         )`,
       })
       .from(T)
