@@ -63,11 +63,35 @@ export function lowesItemNumberFromUrl(url: string): string | null {
   return /^\d{5,}$/.test(itemNumber) ? itemNumber : null;
 }
 
-export function pickLowesProductUrl(urls: string[]): string | null {
-  for (const url of urls) {
-    if (lowesItemNumberFromUrl(url)) return url;
-  }
-  return null;
+export type LowesSearchHit = {
+  url: string;
+  title: string;
+  description: string;
+};
+
+const INTERIOR_REJECT = /entry|sidelight|exterior|front-door|storm-door|patio/;
+
+/** First Lowe's product URL that does not contradict the scope. */
+export function pickLowesProduct(hits: LowesSearchHit[], scope: string): LowesSearchHit | null {
+  const scopeText = scope.toLowerCase();
+  const wantsInterior = scopeText.includes('interior');
+  const products = hits.filter((hit) => lowesItemNumberFromUrl(hit.url));
+  const fitting = products.filter((hit) => {
+    if (!wantsInterior) return true;
+    const text = `${hit.title} ${hit.description} ${hit.url}`.toLowerCase();
+    return !INTERIOR_REJECT.test(text);
+  });
+  fitting.sort((left, right) => scoreLowesHit(right, scopeText) - scoreLowesHit(left, scopeText));
+  return fitting[0] ?? null;
+}
+
+function scoreLowesHit(hit: LowesSearchHit, scopeText: string): number {
+  const text = `${hit.title} ${hit.url}`.toLowerCase();
+  let score = 0;
+  if (scopeText.includes('interior') && text.includes('interior')) score += 2;
+  if (scopeText.includes('prehung') && text.includes('prehung')) score += 2;
+  if (text.includes('door')) score += 1;
+  return score;
 }
 
 export async function sourceLowesMaterial(
@@ -84,33 +108,43 @@ export async function sourceLowesMaterial(
     tags: ['job-quote', 'lowes-material'],
   });
 
-  const productUrl = pickLowesProductUrl(searched.results.map((result) => result.url));
-  if (!productUrl) {
+  const productHit = pickLowesProduct(
+    searched.results.map((result) => ({
+      url: result.url,
+      title: result.title,
+      description: result.description,
+    })),
+    input.scope,
+  );
+  if (!productHit) {
     return {
       materials: [],
       sources: searched.results.map((result) => result.url),
       partial: searched.partial === true,
       creditsConsumed: searched.key_metadata?.credits_consumed ?? null,
       creditsRemaining: searched.key_metadata?.credits_remaining ?? null,
-      note: `No Lowe's product page found. ${NOTE}`,
+      note: `No matching Lowe's product page found. ${NOTE}`,
     };
   }
 
   const page = await scrape({
-    url: productUrl,
+    url: productHit.url,
     formats: { product: true },
     maxAgeMs: 0,
     productParams: { useAIFallback: false },
+    sharedParams: { country: 'us', waitFor: 3000 },
     tags: ['job-quote', 'lowes-material'],
-    timeoutOpts: { milliseconds: 45_000, behavior: 'fail' },
+    timeoutOpts: { milliseconds: 60_000, behavior: 'return-partial' },
   });
 
   const product = page.product.data?.isProductPage ? page.product.data.product : null;
   const itemNumber =
-    product?.sku?.trim() || lowesItemNumberFromUrl(page.url) || lowesItemNumberFromUrl(productUrl);
+    product?.sku?.trim() ||
+    lowesItemNumberFromUrl(page.url) ||
+    lowesItemNumberFromUrl(productHit.url);
   const price =
     typeof product?.price === 'number' && Number.isFinite(product.price) ? product.price : null;
-  const description = product?.name?.trim() || "Lowe's product";
+  const description = product?.name?.trim() || productHit.title.trim();
 
   return {
     materials: [
@@ -123,11 +157,11 @@ export async function sourceLowesMaterial(
         quantity: null,
         unitCostLow: price,
         unitCostHigh: price,
-        productUrl: page.url || productUrl,
+        productUrl: page.url || productHit.url,
         verification: LOWES_CHECK_REQUIRED,
       },
     ],
-    sources: [page.url || productUrl],
+    sources: [page.url || productHit.url],
     partial: searched.partial === true || page.isPartial === true,
     creditsConsumed: sumCredits(
       searched.key_metadata?.credits_consumed,

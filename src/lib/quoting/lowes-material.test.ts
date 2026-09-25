@@ -63,6 +63,26 @@ describe('sourceLowesMaterial', () => {
     expect(result.note).toContain(LOWES_CHECK_REQUIRED);
   });
 
+  it('skips an entry door when the scope is an interior door', async () => {
+    const entryUrl = 'https://www.lowes.com/pd/ReliaBilt-Entry-Door-with-Sidelights/1000370233';
+    const interiorUrl = 'https://www.lowes.com/pd/JELD-WEN-Interior-Prehung-Door/5012345678';
+    const search = vi.fn<LowesSearchFn>(async () =>
+      searchResponse([
+        { url: entryUrl, title: 'Entry door with sidelights' },
+        { url: interiorUrl, title: 'Interior prehung door' },
+      ]),
+    );
+    const scrape = vi.fn<LowesScrapeFn>(async () => scrapeResponse({ url: interiorUrl }));
+
+    const result = await sourceLowesMaterial(
+      { scope: '60-inch interior prehung door' },
+      { search, scrape },
+    );
+
+    expect(scrape.mock.calls[0]?.[0]).toMatchObject({ url: interiorUrl });
+    expect(result.materials[0]?.itemNumber).toBe('5012345678');
+  });
+
   it('does not invent a price or item number when no product page is found', async () => {
     const search = vi.fn<LowesSearchFn>(async () =>
       searchResponse(['https://www.lowes.com/search?searchTerm=door']),
@@ -116,18 +136,22 @@ describe('sourceLowesMaterial', () => {
   });
 });
 
-function searchResponse(urls: string[]): WebSearchResponse {
+function searchResponse(urls: Array<string | { url: string; title: string }>): WebSearchResponse {
   return {
     cache_metadata: { age_ms: 0, status: 'miss' },
     query: 'door',
     request_id: 'req-search',
-    results: urls.map((url) => ({
-      description: '',
-      markdown: { code: 'NOT_REQUESTED', markdown: null },
-      relevance: 'high',
-      title: 'Door',
-      url,
-    })),
+    results: urls.map((entry) => {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      const title = typeof entry === 'string' ? 'Door' : entry.title;
+      return {
+        description: '',
+        markdown: { code: 'NOT_REQUESTED' as const, markdown: null },
+        relevance: 'high' as const,
+        title,
+        url,
+      };
+    }),
     key_metadata: { credits_consumed: 1, credits_remaining: 100 },
   };
 }
