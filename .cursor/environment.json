@@ -1,0 +1,17 @@
+{
+  "name": "PT's Tactical Foreman",
+  "install": "corepack enable && pnpm install --frozen-lockfile && { [ -f .env.local ] || cp .env.example .env.local; }",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "pnpm dev",
+      "description": "Next.js dev server (http://localhost:3000)"
+    }
+  ],
+  "ports": [
+    {
+      "name": "web",
+      "port": 3000
+    }
+  ]
+}
