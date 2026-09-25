@@ -305,8 +305,8 @@ Not "Warning: incomplete data." Not "Invalid range."
 
 ## Current state
 
-- **756 unit tests** across 36 files
-- **205 real-Postgres RLS assertions**
+- **767 unit tests** across 37 files
+- **184 real-Postgres RLS assertions**
 - **50 tables**, all `ENABLE` + `FORCE` RLS
 - Migrations through `0048` applied to the live project and verified
 - Security advisor: three pre-existing WARNs on `has_role` / `is_member_of` /
