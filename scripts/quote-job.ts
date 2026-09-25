@@ -1,5 +1,5 @@
 /**
- * One live job-quote proof. Not part of `pnpm test`.
+ * Live Lowe's material lookup. Not part of `pnpm test`.
  *
  *   pnpm exec tsx --conditions=react-server scripts/quote-job.ts
  */
@@ -9,16 +9,13 @@ import { resolve } from 'node:path';
 async function main(): Promise<void> {
   loadEnvFile('.env.local');
 
-  const { quoteJob } = await import('../src/lib/quoting/quote-job');
+  const { sourceLowesMaterial } = await import('../src/lib/quoting/lowes-material');
 
-  const draft = await quoteJob({
-    trade: 'interior carpentry',
-    location: 'United States national average',
-    scope:
-      'Replace one standard 60-inch interior prehung door, including removal of the existing door, a new prehung unit, basic hardware, and typical labor. Public unit-cost ranges only.',
+  const materials = await sourceLowesMaterial({
+    scope: '60-inch interior prehung door',
   });
 
-  console.log(JSON.stringify(draft, null, 2));
+  console.log(JSON.stringify(materials, null, 2));
 }
 
 main().catch((error: unknown) => {

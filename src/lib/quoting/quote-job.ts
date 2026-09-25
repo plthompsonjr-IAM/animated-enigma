@@ -4,6 +4,7 @@ import type { WebAnswersParams, WebAnswersResponse } from 'context.dev/resources
 import { z } from 'zod';
 
 import { getContextDevClient, withContextDevRetry } from '@/lib/context-dev/client';
+import { sourceLowesMaterial, type LowesMaterialResult } from '@/lib/quoting/lowes-material';
 
 const quoteInputSchema = z.object({
   trade: z.string().trim().min(1).max(200),
@@ -48,6 +49,10 @@ export type JobQuoteLineItem = {
   quantity: number | null;
   unitCostLow: number | null;
   unitCostHigh: number | null;
+  vendor: string | null;
+  itemNumber: string | null;
+  productUrl: string | null;
+  verification: string | null;
 };
 
 export type JobQuoteDraft = {
@@ -66,7 +71,7 @@ export type JobQuoteDraft = {
 };
 
 export const QUOTE_DISCLAIMER =
-  'Unverified web research draft. Confirm every cost before sending a bid. This is not a firm quote.';
+  "Unverified draft. Material prices are read from a Lowe's product page and are NOT VERIFIED — CHECK REQUIRED. Confirm every cost before sending a bid.";
 
 export const QUOTE_JSON_FORMAT = {
   line_items: [
@@ -90,8 +95,8 @@ export function buildQuoteTask(input: QuoteJobInput): string {
     `Draft a residential remodeling cost range for a ${input.trade} job.`,
     `Location: ${input.location}.`,
     `Scope: ${input.scope}`,
-    'Use public US sources for typical unit-cost ranges in US dollars.',
-    'Separate material, labor, equipment, and subcontractor items.',
+    "Do not price materials. Material item numbers and prices are sourced from Lowe's separately.",
+    'Return labor, equipment, and subcontractor unit-cost ranges only, in US dollars.',
     'State quantity assumptions. Do not present this as a firm bid.',
     'Leave unknown costs null.',
   ].join(' ');
@@ -104,20 +109,24 @@ export function buildQuoteTask(input: QuoteJobInput): string {
 
 export async function quoteJob(
   input: QuoteJobInput,
-  deps?: { answers?: AnswersFn },
+  deps?: { answers?: AnswersFn; lowes?: (scope: string) => Promise<LowesMaterialResult> },
 ): Promise<JobQuoteDraft> {
   const parsed = quoteInputSchema.parse(input);
   const answers = deps?.answers ?? defaultAnswers;
-  const response = await answers({
-    mode: 'fast',
-    task: buildQuoteTask(parsed),
-    json_format: QUOTE_JSON_FORMAT,
-    timeoutOpts: { milliseconds: 30_000, behavior: 'return-partial' },
-    tags: ['job-quote'],
-  });
+  const lowes = deps?.lowes ?? ((scope: string) => sourceLowesMaterial({ scope }));
+  const [response, lowesMaterials] = await Promise.all([
+    answers({
+      mode: 'fast',
+      task: buildQuoteTask(parsed),
+      json_format: QUOTE_JSON_FORMAT,
+      timeoutOpts: { milliseconds: 30_000, behavior: 'return-partial' },
+      tags: ['job-quote'],
+    }),
+    lowes(parsed.scope),
+  ]);
 
   const content = quoteContentSchema.parse(response.json_content);
-  const lineItems = content.line_items
+  const laborLines = content.line_items
     .map((item) => ({
       description: item.description?.trim() ?? '',
       category: item.category?.trim().toLowerCase() ?? '',
@@ -125,8 +134,12 @@ export async function quoteJob(
       quantity: item.quantity,
       unitCostLow: item.unit_cost_low,
       unitCostHigh: item.unit_cost_high,
+      vendor: null,
+      itemNumber: null,
+      productUrl: null,
+      verification: null,
     }))
-    .filter((item) => item.description.length > 0);
+    .filter((item) => item.description.length > 0 && item.category !== 'material');
 
   return {
     verified: false,
@@ -134,19 +147,36 @@ export async function quoteJob(
     trade: parsed.trade,
     location: parsed.location,
     scope: parsed.scope,
-    lineItems,
+    lineItems: [...lowesMaterials.materials, ...laborLines],
     assumptions: content.assumptions.map((item) => item.trim()).filter(Boolean),
     exclusions: content.exclusions.map((item) => item.trim()).filter(Boolean),
-    sources: response.sources,
-    partial: response.partial === true,
-    creditsConsumed: response.key_metadata?.credits_consumed ?? null,
-    creditsRemaining: response.key_metadata?.credits_remaining ?? null,
+    sources: [...lowesMaterials.sources, ...response.sources],
+    partial: response.partial === true || lowesMaterials.partial,
+    creditsConsumed: sumCredits(
+      lowesMaterials.creditsConsumed,
+      response.key_metadata?.credits_consumed ?? null,
+    ),
+    creditsRemaining: minCredits(
+      lowesMaterials.creditsRemaining,
+      response.key_metadata?.credits_remaining ?? null,
+    ),
   };
 }
 
 async function defaultAnswers(body: WebAnswersParams): Promise<WebAnswersResponse> {
   const client = getContextDevClient();
   return withContextDevRetry(() => client.web.answers(body));
+}
+
+function sumCredits(left: number | null, right: number | null): number | null {
+  if (left === null && right === null) return null;
+  return (left ?? 0) + (right ?? 0);
+}
+
+function minCredits(left: number | null, right: number | null): number | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return Math.min(left, right);
 }
 
 function blankToNull(value: string | null | undefined): string | null {
