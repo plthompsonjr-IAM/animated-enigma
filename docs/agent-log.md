@@ -71,6 +71,65 @@ is a public-shaped file in a repository. Reference a variable by name only.
 
 ## Log
 
+## 2026-09-25 — Go-live, live: first real crashes found and fixed by real usage
+**By:** Claude, working live with Patrick through Part A–D of the go-live checklist.
+
+The database variables from 2026-09-20 (`DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
+went in with lowercase, misspelled names the first time — Vercel accepted them
+silently, and the app read them as simply absent. Environment variable names
+are case-sensitive; there is no way to catch a typo like that from code, only
+from someone actually looking at the saved list. Fixed by re-adding with the
+exact names.
+
+Two real application bugs surfaced from genuine first use, both found the same
+way: reproduce the exact SQL Drizzle generates (`.toSQL()`), run it directly
+against the live database, fix, re-verify the same way.
+
+1. **`dashboardSignals`'s task-blocked count** correlated a subquery back to
+   its own outer table (`project_tasks`) with a bare, unqualified `id` —
+   ambiguous against the subquery's own aliased `project_tasks` and
+   `task_dependencies` rows. Broke the very first dashboard load after the
+   very first signup. Fixed in `cdcd1c3`.
+2. **`getProject` and `getScopeVersions`** each joined the `users` table more
+   than once (project manager / foreman / salesperson; creator / approver)
+   using three, respectively two, variable names that all pointed at the same
+   `schema.users` object — not real SQL aliases. Drizzle throws the instant a
+   second join targets an already-used table, before any SQL is even sent —
+   a hard crash on literally every project page, for any project, from the
+   first time this code ever ran against a live server. A repo-wide scan
+   (every function assigning the same schema table to more than one variable
+   AND actually using more than one of those variables in a join) found
+   exactly these two instances. Fixed in `97b9f15` with Drizzle's `alias()`.
+
+**Why neither was caught earlier: no automated test in this project ever
+calls compiled `queries.ts` code against a live connection.** The
+real-Postgres harness (`scripts/rls-assertions.sql`) proves hand-written SQL
+text that *mirrors* what a query should produce, not the Drizzle output
+itself, and unit tests never touch a database at all. Both bugs are now
+covered there — the dashboard one because the SQL shape itself was wrong; the
+`getProject`/`getScopeVersions` one as a guard against future schema drift,
+since the original failure was a JavaScript exception, not a SQL error, and
+can't be reproduced through `psql`. Worth naming as a real gap this scan
+doesn't close: a *third* function with this same mistake, if one is ever
+written, is caught only if someone re-runs the scan or it happens to crash a
+page someone actually opens.
+
+Email (Task 32) confirmed working end to end: a real invite sent from
+Patrick's own connected Google address. Google Calendar connected
+successfully after Patrick found he'd swapped the Client ID and Secret
+values on the first attempt. Calendar sync itself (Task 33) is not yet
+confirmed — scheduling a site visit crashed on `getProject` before the
+Google Calendar API was ever reached; that's proof pending on the fix above
+actually being live.
+
+**Open, unresolved as this entry is written:** after `97b9f15` deployed and
+Vercel reported it Ready, the McLean project page still crashed with the same
+generic error, on both the primary domain and the specific fresh deployment
+URL Patrick was given. GitHub posted no commit-status webhook at all for this
+push — a real anomaly; the two prior fixes each posted one within seconds.
+Whether that's a stalled webhook, a deploy that silently used stale code, or
+a second distinct bug is not yet known.
+
 ## 2026-09-17 — Setup shrunk to clicks: integration variable names, derived URLs, go-live checklist
 **By:** Claude
 
